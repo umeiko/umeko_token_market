@@ -2,6 +2,8 @@
 
 云端默认基础地址为 `https://api.example.com`。公开模型 API 使用 `Authorization: Bearer umo-sk-...`；管理 API 使用登录后写入的 HttpOnly Cookie。
 
+如果配置了 `BASE_PATH=/api_seller`，则以下云端路径都增加该前缀，例如 `/api_seller/v1/models` 和 `/api_seller/api/admin/login`；本地 Web 管理 API 不使用该前缀。
+
 ## 通用错误
 
 公开模型 API 使用 OpenAI 风格错误：

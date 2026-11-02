@@ -1,5 +1,6 @@
 export async function api(method, path, body) {
-  const response = await fetch(path, {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const response = await fetch(`${base}${path}`, {
     method,
     credentials: 'same-origin',
     headers: body ? { 'content-type': 'application/json' } : {},

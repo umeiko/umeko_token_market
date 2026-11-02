@@ -35,6 +35,32 @@ npm start
 
 在仅有反向代理访问云端的部署中，`HOST=127.0.0.1` 可以减少直接暴露。
 
+## 子路径部署
+
+如果中转站与主站共用域名，例如将中转站放在 `https://umekolab.cn/api_seller/`，构建和启动时分别设置前端与服务端前缀：
+
+```bash
+VITE_BASE=/api_seller/ npm run build
+BASE_PATH=/api_seller HOST=127.0.0.1 PORT=3100 npm start
+```
+
+此时管理面板位于 `/api_seller/`，公开模型地址为 `/api_seller/v1`，本地连接地址使用 `https://umekolab.cn/api_seller`。Nginx 的 `proxy_pass` 不要添加末尾 `/`，以保留完整前缀：
+
+```nginx
+location = /api_seller { return 301 /api_seller/; }
+location /api_seller/ {
+  proxy_pass http://127.0.0.1:3100;
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $connection_upgrade;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_read_timeout 3600s;
+  proxy_buffering off;
+}
+```
+
 ## Nginx HTTPS / WSS
 
 以下示例假设证书和 HTTP 跳转已由 Certbot 等工具配置：
