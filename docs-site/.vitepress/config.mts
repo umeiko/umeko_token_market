@@ -53,7 +53,7 @@ export default defineConfig({
     lightModeSwitchTitle: '切换为浅色', darkModeSwitchTitle: '切换为深色',
     skipToContentLabel: '跳转到正文',
     notFound: { title: '没有找到这一页', quote: '试试搜索，或者回到首页继续。', linkText: '回到首页', linkLabel: '回到文档首页' },
-    footer: { message: '自托管模型，自由分发。', copyright: 'Umeko Token Relay · 文档与源码一起演进' },
+    footer: { message: '自托管模型，自由分发。', copyright: 'Umeko Token Relay · <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer nofollow">黔ICP备2026019339号</a>' },
     search: {
       provider: 'local',
       options: {

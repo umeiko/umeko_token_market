@@ -90,5 +90,6 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
       <component :is="active.component" :key="current" />
     </main>
   </div>
+  <footer class="icp-footer"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer nofollow">黔ICP备2026019339号</a></footer>
   <div class="toast-stack" aria-live="polite"><div v-for="toast in toasts" :key="toast.id" class="toast" :class="{ bad: toast.bad }"><UiIcon :name="toast.bad ? 'info' : 'check'" :size="17" />{{ toast.message }}</div></div>
 </template>
