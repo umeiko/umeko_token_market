@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#f4f8fa" />
+  <title>Umeko Token Relay · 本地控制台</title>
+  <style>
+    :root{font-family:Inter,"Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;color:#183b47;background:#f4f8fa;--accent:#087f95;--muted:#6a8590;--line:#dce8ed}*{box-sizing:border-box}body{margin:0}button,input{font:inherit}button{cursor:pointer}.layout{min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:220px;background:#f8fbfc;border-right:1px solid var(--line);padding:22px 16px;display:flex;flex-direction:column}.brand{display:flex;align-items:center;gap:11px;margin:0 7px 42px}.mark{width:38px;height:38px;border-radius:11px;background:var(--accent);color:white;display:grid;place-items:center;font-size:20px;font-weight:700}.brand strong{font-size:14px;letter-spacing:.2px}.brand small{display:block;font-size:8px;letter-spacing:1.8px;color:#829aa3;margin-top:4px}.caption{font-size:9px;color:#91a4ab;letter-spacing:1.2px;margin:0 12px 10px}.nav{display:grid;gap:6px}.nav button{height:43px;border:0;border-radius:7px;background:transparent;color:#5c7985;text-align:left;padding:0 14px;font-size:12px}.nav button.active{background:#e5f3f6;color:var(--accent);font-weight:600}.nav button:hover{background:#edf5f7}.side-status{margin-top:auto;padding:14px;background:#eef7f8;border:1px solid #dcecef;border-radius:9px;font-size:10px;display:flex;gap:9px;align-items:center}.dot{width:7px;height:7px;border-radius:50%;background:#718992;display:inline-block}.side-status small{display:block;color:var(--muted);margin-top:4px;font-size:9px}.version{text-align:center;color:#9aabb1;font-size:8px;margin-top:18px}.main{margin-left:220px;padding:0 30px 40px;max-width:1500px}.topbar{height:65px;margin:0 -30px;padding:0 30px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:11px}.ready{display:flex;align-items:center;gap:7px}.ready i{width:6px;height:6px;border-radius:50%;background:#20a18e}.page{display:none}.page.active{display:block}.heading{display:flex;align-items:center;justify-content:space-between;margin:27px 0 23px}.heading h1{font-size:24px;margin:0 0 7px;letter-spacing:-.5px}.heading p{font-size:11px;color:var(--muted);margin:0}.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;background:#eef3f5;color:#718992;font-size:10px}.badge.online{background:#e8f6f2;color:#178775}.badge.waiting{background:#fff5e6;color:#a57028}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-bottom:18px}.stat,.card{background:#fff;border:1px solid var(--line);border-radius:11px;box-shadow:0 5px 20px #17394504}.stat{padding:18px;position:relative;min-height:110px}.stat span{font-size:11px;color:var(--muted)}.stat strong{display:block;font-size:25px;margin:11px 0 6px}.stat small{font-size:9px;color:#8b9fa7}.stat i{position:absolute;right:17px;top:17px;width:32px;height:32px;border-radius:8px;background:#e9f5f7;color:var(--accent);display:grid;place-items:center;font-style:normal}.grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(260px,.7fr);gap:18px}.card-header{padding:18px 20px 13px;border-bottom:1px solid #e8f0f3}.card-header h2{font-size:15px;margin:0 0 5px}.card-header p{font-size:10px;color:var(--muted);margin:0}.form{padding:18px 20px;display:grid;gap:14px}.field{display:grid;gap:7px}.field label{font-size:11px;color:#496a76;font-weight:500}.field input{width:100%;height:40px;padding:0 11px;border:1px solid #d7e5ea;border-radius:7px;color:#183b47;background:#fff;font-size:12px;outline:none}.field input:focus{border-color:#70b7c5;box-shadow:0 0 0 3px #087f950d}.row{display:flex;gap:12px}.row .field{flex:1}.row .id-field{max-width:110px}.switch-row{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#587681}.switch-row input{accent-color:var(--accent)}.actions{display:flex;gap:8px;margin-top:3px}button.btn{height:39px;border:1px solid #d7e5ea;border-radius:7px;padding:0 15px;background:#fff;color:#587681;font-size:11px;font-weight:500}button.btn:hover{background:#f1f6f8}button.primary{background:var(--accent);border-color:var(--accent);color:#fff;flex:1}button.primary:hover{background:#076e82}button:disabled{opacity:.5;cursor:not-allowed}.status-card{padding:23px;display:flex;flex-direction:column;align-items:stretch}.status-card h2{font-size:15px;margin:0 0 20px}.status-ring{width:92px;height:92px;border:1px solid #d5e8eb;background:#edf7f8;border-radius:50%;display:grid;place-items:center;margin:6px auto 15px}.status-ring div{width:68px;height:68px;border-radius:50%;background:#dff0f2;display:grid;place-items:center;color:var(--accent);font-size:28px}.status-title{text-align:center;font-size:16px;font-weight:600;margin:0 0 7px}.status-sub{text-align:center;color:var(--muted);font-size:10px;line-height:1.6;margin:0 0 18px}.details{border-top:1px solid #e8f0f3;padding-top:10px}.details div{display:flex;justify-content:space-between;padding:7px 0;font-size:10px}.details span{color:var(--muted)}.notice{margin-top:auto;background:#eff7f8;border-radius:7px;padding:11px;color:#5e7d88;font-size:9px;line-height:1.6}.logs-card{margin-top:24px;overflow:hidden}.logs{height:440px;overflow:auto;padding:12px 20px;font:11px/1.9 ui-monospace,SFMono-Regular,Consolas,monospace;color:#53727e}.log{padding:5px 8px;border-radius:4px;white-space:pre-wrap}.log:nth-child(odd){background:#fafcfd}.empty{text-align:center;color:#91a4ab;padding:80px 20px;font-family:inherit}.guide{display:grid;gap:15px}.guide-card{padding:20px;display:flex;gap:17px}.number{flex:0 0 42px;width:42px;height:42px;border-radius:10px;background:#e8f5f7;color:var(--accent);display:grid;place-items:center;font-size:12px;font-weight:600}.guide-card h3{font-size:14px;margin:0 0 7px}.guide-card p{font-size:11px;color:var(--muted);line-height:1.7;margin:0}.code{font:10px/1.7 ui-monospace,monospace;background:#f4f8fa;border:1px solid var(--line);padding:11px;border-radius:7px;margin-top:10px;white-space:pre-wrap;word-break:break-all}.toast{position:fixed;right:24px;bottom:24px;max-width:400px;padding:13px 17px;background:white;border:1px solid #c9e4dd;color:#1b796b;border-radius:9px;box-shadow:0 12px 35px #17394520;font-size:11px;opacity:0;pointer-events:none;transition:.2s}.toast.show{opacity:1}.toast.error{color:#b73e50;border-color:#edcbd2}@media(max-width:950px){.sidebar{width:190px}.main{margin-left:190px;padding-left:20px;padding-right:20px}.topbar{margin-left:-20px;margin-right:-20px;padding-left:20px;padding-right:20px}.grid{grid-template-columns:1fr}.status-card{min-height:480px}}@media(max-width:680px){.sidebar{position:static;width:auto;padding:14px 18px;display:block}.brand{margin:0 0 14px}.caption,.side-status,.version{display:none}.nav{display:flex}.nav button{flex:1;text-align:center;padding:0}.main{margin:0;padding:0 16px 30px}.topbar{margin:0 -16px;padding:0 16px}.stats{grid-template-columns:1fr}.heading{margin-top:20px}.row{flex-direction:column}.row .id-field{max-width:none}.logs{height:350px}}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="mark">U</span><div><strong>Umeko Token Relay</strong><small>LOCAL CONNECTOR</small></div></div>
+    <div class="caption">本地工作台</div>
+    <nav class="nav"><button class="active" data-page="overview">连接概览</button><button data-page="logs">运行日志</button><button data-page="guide">接入说明</button></nav>
+    <div class="side-status"><i class="dot" id="side-dot"></i><div><span id="side-text">本地代理未上线</span><small>CLI SHARED CORE</small></div></div>
+    <div class="version">Umeko Token Relay · v1.0.0</div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><span>本地连接端 / <b id="crumb">连接概览</b></span><span class="ready"><i></i>本机 Web 管理服务已连接</span></header>
+    <section class="page active" id="overview">
+      <div class="heading"><div><h1>连接概览</h1><p>将家中已有的模型服务安全接入云端</p></div><span class="badge" id="cloud-badge">代理未连接</span></div>
+      <div class="stats">
+        <article class="stat"><i>↗</i><span>云端连接</span><strong id="cloud-stat">未在线</strong><small id="provider-name">等待供应商凭据验证</small></article>
+        <article class="stat"><i>⌁</i><span>本地推理</span><strong id="local-stat">未就绪</strong><small id="local-latency">尚未完成健康探测</small></article>
+        <article class="stat"><i>▥</i><span>活动 / 累计请求</span><strong id="request-stat">0 / 0</strong><small>流式请求会计入活动并发</small></article>
+      </div>
+      <div class="grid">
+        <article class="card">
+          <div class="card-header"><h2>连接配置</h2><p>与 CLI、Qt/QML 界面共享同一份配置</p></div>
+          <form class="form" id="config-form">
+            <div class="field"><label>云端服务地址</label><input name="cloudUrl" placeholder="https://api.example.com" required /></div>
+            <div class="row"><div class="field id-field"><label>供应商 ID</label><input name="providerId" type="number" min="1" required /></div><div class="field"><label>供应商连接凭据</label><input name="providerToken" type="password" placeholder="umo-agent-..." required /></div></div>
+            <div class="field"><label>本地推理服务地址</label><input name="localBaseUrl" placeholder="http://127.0.0.1:8080" required /></div>
+            <div class="field"><label>本地 API Key（可选）</label><input name="localApiKey" type="password" placeholder="llama.cpp / vLLM 通常无需填写" /></div>
+            <label class="switch-row">启动 CLI 后自动连接<input name="autoConnect" type="checkbox" /></label>
+            <div class="actions"><button class="btn primary" type="submit" id="start-button">保存并启动代理</button><button class="btn" type="button" id="stop-button">停止</button><button class="btn" type="button" id="check-button">探测本地</button></div>
+          </form>
+        </article>
+        <article class="card status-card">
+          <h2>运行状态</h2><div class="status-ring"><div id="status-icon">↗</div></div><p class="status-title" id="status-title">代理未连接</p><p class="status-sub" id="status-sub">填写配置并启动代理以接收请求</p>
+          <div class="details"><div><span>云端节点</span><b id="detail-provider">未验证</b></div><div><span>本地服务</span><b id="detail-local">不可用 / 未探测</b></div><div><span>活动请求</span><b id="detail-active">0 个</b></div><div><span>健康延迟</span><b id="detail-latency">—</b></div></div>
+          <div class="notice">本地推理端口无需暴露到公网。云端请求通过本程序主动建立的反向隧道转发，云端同时负责 Key 分发、计费和并发管理。</div>
+        </article>
+      </div>
+    </section>
+    <section class="page" id="logs">
+      <div class="heading"><div><h1>运行日志</h1><p>显示最近 200 条连接与转发事件，不记录请求内容</p></div><span class="badge" id="log-count">0 条记录</span></div>
+      <article class="card logs-card"><div class="card-header"><h2>CLI 核心事件</h2><p>Web 和 Qt/QML 只是本地连接核心的管理界面</p></div><div class="logs" id="log-list"><div class="empty">暂无日志</div></div></article>
+    </section>
+    <section class="page" id="guide">
+      <div class="heading"><div><h1>接入说明</h1><p>本地程序只负责转发，不会启动或管理推理进程</p></div></div>
+      <div class="guide">
+        <article class="card guide-card"><span class="number">01</span><div><h3>先启动你的推理服务</h3><p>使用 llama.cpp、vLLM 或 SGLang 启动 OpenAI 兼容服务，确认本机 /v1/models 可以访问。无需公网 IP 或端口映射。</p></div></article>
+        <article class="card guide-card"><span class="number">02</span><div><h3>在云端创建供应商和 API Key</h3><p>供应商凭据用于本地 CLI 连接云端；umo-sk API Key 用于外部调用。云端负责 Key 分发、计费、额度与并发限制。</p></div></article>
+        <article class="card guide-card"><span class="number">03</span><div><h3>三种入口共用同一个核心</h3><p>CLI 是主要运行方式；Qt/QML 和此 Web 页面是附属管理界面。配置保存在当前用户的 QSettings 中。</p><div class="code"># 无界面 CLI + 本机 Web 控制台
+# 后台启动服务并立即返回
+utoken up
+
+# 查看状态与日志
+utoken status
+utoken logs
+
+# 可选 Qt/QML 桌面界面
+utoken ui
+
+# 停止转发 / 退出后台服务
+utoken stop
+utoken down</div></div></article>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const $=id=>document.getElementById(id),form=$('config-form');let toastTimer;
+const names={overview:'连接概览',logs:'运行日志',guide:'接入说明'};
+document.querySelectorAll('.nav button').forEach(button=>button.onclick=()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.toggle('active',x===button));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===button.dataset.page));$('crumb').textContent=names[button.dataset.page]});
+function toast(message,error=false){const el=$('toast');el.textContent=message;el.className='toast show'+(error?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.className='toast',3000)}
+async function api(path,method='GET',body){const response=await fetch(path,{method,headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const data=await response.json();if(!response.ok)throw new Error(data.error||'请求失败');return data}
+function config(){const data=new FormData(form);return{cloudUrl:data.get('cloudUrl').trim(),providerId:Number(data.get('providerId')),providerToken:data.get('providerToken'),localBaseUrl:data.get('localBaseUrl').trim(),localApiKey:data.get('localApiKey'),autoConnect:data.get('autoConnect')==='on'}}
+async function loadConfig(){const data=await api('/api/config');for(const [key,value] of Object.entries(data)){const input=form.elements[key];if(!input)continue;if(input.type==='checkbox')input.checked=value;else input.value=value}}
+function stateText(state){return{online:'服务已上线',connecting:'正在连接云端',authenticating:'正在验证凭据',reconnecting:'等待自动重连',offline:'代理未连接'}[state]||state}
+async function refresh(){try{const s=await api('/api/status'),online=s.connectionState==='online',text=stateText(s.connectionState);$('cloud-badge').textContent=text;$('cloud-badge').className='badge'+(online?' online':s.connectionState==='offline'?'':' waiting');$('cloud-stat').textContent=online?'在线':'未在线';$('provider-name').textContent=s.providerName||'等待供应商凭据验证';$('local-stat').textContent=s.localOnline?'正常':'未就绪';$('local-latency').textContent=s.localLatency>=0?'最近探测延迟 '+s.localLatency+' ms':'尚未完成健康探测';$('request-stat').textContent=s.activeRequests+' / '+s.totalRequests;$('side-text').textContent=online?'本地代理运行中':'本地代理未上线';$('side-dot').style.background=online?'#20a18e':'#718992';$('status-icon').textContent=online?'✓':'↗';$('status-title').textContent=text;$('status-sub').textContent=online?'云端请求将转发至本地推理端口':'填写配置并启动代理以接收请求';$('detail-provider').textContent=s.providerName||'未验证';$('detail-local').textContent=s.localOnline?'可用':'不可用 / 未探测';$('detail-active').textContent=s.activeRequests+' 个';$('detail-latency').textContent=s.localLatency>=0?s.localLatency+' ms':'—';$('start-button').disabled=!['offline','reconnecting'].includes(s.connectionState);$('stop-button').disabled=s.connectionState==='offline';$('log-count').textContent=s.logs.length+' 条记录';const list=$('log-list');list.replaceChildren();if(!s.logs.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='暂无日志';list.append(empty)}else for(const message of s.logs){const line=document.createElement('div');line.className='log';line.textContent=message;list.append(line)}list.scrollTop=list.scrollHeight}catch(error){$('cloud-badge').textContent='CLI 连接已断开';$('cloud-badge').className='badge waiting'}}
+form.onsubmit=async event=>{event.preventDefault();try{await api('/api/start','POST',config());toast('配置已保存，正在启动代理');refresh()}catch(error){toast(error.message,true)}};
+$('stop-button').onclick=async()=>{await api('/api/stop','POST',{});toast('本地代理已停止');refresh()};
+$('check-button').onclick=async()=>{await api('/api/check','POST',{});toast('正在探测本地推理服务');setTimeout(refresh,500)};
+loadConfig().then(refresh).catch(error=>toast(error.message,true));setInterval(refresh,2000);
+</script>
+</body>
+</html>

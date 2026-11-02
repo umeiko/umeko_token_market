@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/
+.reference/
+local-app/build/
+*.log
+.DS_Store
