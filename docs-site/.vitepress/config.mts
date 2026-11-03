@@ -7,7 +7,8 @@ function sidebar(): DefaultTheme.SidebarItem[] {
   return [
     { text: '开始使用', items: [
       { text: '五分钟上手', link: '/start/quick-start' },
-      { text: '部署与更新', link: '/start/install' }
+      { text: '部署与更新', link: '/start/install' },
+      { text: '邮件发件配置', link: '/start/email' }
     ] },
     { text: '使用指南', items: [
       { text: '云端管理', link: '/guide/cloud' },
