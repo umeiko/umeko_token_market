@@ -1,4 +1,5 @@
-import { db, transaction } from './db.js';
+import { anthropicResponseStream, anthropicToOpenAI } from './anthropic.js';
+import { db, getUserUsage, transaction } from './db.js';
 import { bearerToken, hashToken } from './security.js';
 
 const estimateTokens = (text) => Math.max(1, Math.ceil(String(text).length / 4));
@@ -25,6 +26,17 @@ export class Gateway {
     }
     if (key.budget_quota_micros > 0 && key.used_cost_micros >= key.budget_quota_micros) {
       throw Object.assign(new Error('API Key 的费用额度已用尽'), { statusCode: 429 });
+    }
+    if (key.user_id) {
+      const user = db.prepare('SELECT enabled FROM users WHERE id = ?').get(key.user_id);
+      if (!user?.enabled) throw Object.assign(new Error('用户账户已被停用'), { statusCode: 401 });
+      const usage = getUserUsage(key.user_id);
+      if (usage.five_hours.quota > 0 && usage.five_hours.used >= usage.five_hours.quota) {
+        throw Object.assign(new Error('账户五小时 Token 限额已用尽'), { statusCode: 429 });
+      }
+      if (usage.week.quota > 0 && usage.week.used >= usage.week.quota) {
+        throw Object.assign(new Error('账户每周 Token 限额已用尽'), { statusCode: 429 });
+      }
     }
     const now = Date.now();
     const window = (this.rateWindows.get(key.id) || []).filter((time) => now - time < 60000);
@@ -70,10 +82,14 @@ export class Gateway {
     };
   }
 
-  async proxy(request, reply) {
-    const key = this.authenticate(request.headers.authorization);
-    const path = request.params['*'];
-    const source = request.body && typeof request.body === 'object' ? request.body : {};
+  async proxy(request, reply, format = 'openai') {
+    const anthropic = format === 'anthropic';
+    const authorization = request.headers.authorization || (request.headers['x-api-key'] ? `Bearer ${request.headers['x-api-key']}` : '');
+    const key = this.authenticate(authorization);
+    const path = anthropic ? 'chat/completions' : request.params['*'];
+    const source = anthropic
+      ? anthropicToOpenAI(request.body)
+      : (request.body && typeof request.body === 'object' ? request.body : {});
     const modelName = source.model || '';
     if (!modelName) throw Object.assign(new Error('请求中缺少 model'), { statusCode: 400 });
     const model = this.selectProvider(modelName);
@@ -115,7 +131,10 @@ export class Gateway {
       if (value !== undefined && !['content-length', 'content-encoding'].includes(name.toLowerCase())) reply.header(name, value);
     }
     reply.header('x-request-id', forwarded.requestId);
-    return reply.send(forwarded.stream);
+    const output = anthropic
+      ? anthropicResponseStream(forwarded.stream, { isStream, status: forwarded.status, model: model.name, requestId: forwarded.requestId })
+      : forwarded.stream;
+    return reply.send(output);
   }
 
   observe(stream, body, isStream, status) {

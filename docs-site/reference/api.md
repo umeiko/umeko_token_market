@@ -70,6 +70,26 @@ Content-Type: application/json
 
 云端对聊天流式请求补充 `stream_options.include_usage=true`。响应状态、非 hop-by-hop 响应头和正文来自上游，额外返回 `x-request-id`。
 
+### POST /v1/messages（Anthropic）
+
+同时提供 Anthropic Messages 兼容入口。使用 `x-api-key: umo-sk-...` 或 Bearer Key，建议携带 `anthropic-version: 2023-06-01`。
+
+```json
+{
+  "model": "qwen3-32b",
+  "max_tokens": 1024,
+  "system": "You are concise.",
+  "messages": [
+    { "role": "user", "content": [{"type": "text", "text": "你好"}] }
+  ],
+  "stream": false
+}
+```
+
+支持 system、user/assistant 消息、text/base64 image 内容块、max_tokens、temperature、top_p、stop_sequences 与 stream。工具调用内容块暂未转换，应改用 OpenAI 接口。
+
+普通响应转换为 Anthropic `message` JSON，流式响应依次产生 `message_start`、`content_block_start`、`content_block_delta`、`content_block_stop`、`message_delta` 和 `message_stop`。错误使用 `{ "type": "error", "error": { "type": "...", "message": "..." } }`。
+
 ## 管理员认证
 
 ### POST /api/admin/login
@@ -218,6 +238,68 @@ Content-Type: application/json
 ```
 
 新密码至少 10 个字符。当前密码错误时返回 `{ "ok": false, "error": "当前密码错误" }`。
+
+## 注册用户与自助门户
+
+用户入口为 `/portal`。用户认证使用独立 `utoken_user_session` Cookie，不使用管理员会话。
+
+### GET /api/user/config
+
+返回 Turnstile site key、是否开发邮件模式，以及默认五小时和周额度。
+
+### POST /api/user/code
+
+```json
+{ "email": "user@example.com", "turnstile_token": "可选，配置 Turnstile 后必填" }
+```
+
+发送 6 位验证码。新邮箱验证后自动注册。接口执行 IP/邮箱发送频率、IP 注册次数、一次性邮箱和蜜罐检查，成功响应不暴露验证码。
+
+### POST /api/user/login
+
+```json
+{ "email": "user@example.com", "code": "123456" }
+```
+
+验证码 10 分钟内有效，最多尝试 5 次。成功写入用户 Cookie并返回用户与额度。
+
+### POST /api/user/logout · GET /api/user/me
+
+退出当前会话，或返回当前用户与额度。以下接口均要求用户会话。
+
+### GET /api/user/overview
+
+返回两档额度、最近一小时统计、在线模型和最近一小时最多 100 条日志。
+
+### GET /api/user/keys · POST /api/user/keys
+
+列出自己的 Key，或使用 `{ "name": "我的 Agent" }` 创建。每个用户最多 3 个启用的 Key，完整 Key 仅创建时返回。
+
+### PATCH /api/user/keys/:id
+
+只能停用自己的 Key：`{ "enabled": false }`，恢复时为 `true`。
+
+## 管理员用户管理
+
+### GET /api/admin/users?search=
+
+按邮箱前缀或数字用户 ID 使用 SQLite 查询，最多返回 50 个用户，包含 Key 数、启用状态和两档额度。
+
+### PATCH /api/admin/users/:id
+
+```json
+{ "token_quota_5h": 2000000, "token_quota_week": 20000000, "enabled": true }
+```
+
+`0` 表示对应窗口不限。停用后该用户所有 Key 返回 `401`。
+
+### POST /api/admin/users/:id/reset
+
+```json
+{ "scope": "five_hours" }
+```
+
+`scope` 支持 `five_hours`、`week`、`all`。重置只更新额度起算时间，不删除调用日志。
 
 ## 本地 Web 管理 API
 

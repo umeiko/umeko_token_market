@@ -5,11 +5,15 @@ import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import websocket from '@fastify/websocket';
 import { adminRoutes } from './admin.js';
+import { sendAnthropicError } from './anthropic.js';
 import { db, ensureAdmin, getSettings } from './db.js';
 import { Gateway, sendGatewayError } from './gateway.js';
 import { Tunnel } from './tunnel.js';
+import { userRoutes } from './user.js';
 
 const basePath = `/${(process.env.BASE_PATH || '').replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, '');
+const assetPath = `/${(process.env.ASSET_PATH || basePath).replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, '');
+const consolePaths = (process.env.CONSOLE_PATHS || basePath).split(',').map((path) => `/${path.trim().replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, ''));
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'info' },
@@ -24,6 +28,10 @@ const tunnel = new Tunnel(app.log);
 const gateway = new Gateway(tunnel, getSettings);
 
 await app.register(async (relay) => {
+  relay.get('/', async () => ({
+    name: 'Umeko Token Relay', status: 'ok',
+    endpoints: { openai: `${basePath}/v1`, anthropic: `${basePath}/v1/messages`, health: `${basePath}/health` },
+  }));
   relay.get('/health', async () => ({ status: 'ok', providers_online: tunnel.providers.size }));
   relay.get('/agent/connect', { websocket: true }, (socket) => tunnel.connect(socket));
   relay.get('/v1/models', async (request, reply) => {
@@ -31,6 +39,10 @@ await app.register(async (relay) => {
       gateway.authenticate(request.headers.authorization);
       return { object: 'list', data: gateway.models() };
     } catch (error) { return sendGatewayError(reply, error); }
+  });
+  relay.post('/v1/messages', async (request, reply) => {
+    try { return await gateway.proxy(request, reply, 'anthropic'); }
+    catch (error) { return sendAnthropicError(reply, error); }
   });
   relay.route({
     method: ['POST'],
@@ -41,13 +53,20 @@ await app.register(async (relay) => {
     },
   });
   await relay.register(adminRoutes, { tunnel, gateway });
+  await relay.register(userRoutes, { tunnel });
+  relay.setErrorHandler((error, request, reply) => {
+    request.log.error({ err: error }, 'Request failed');
+    if (reply.sent) return;
+    const status = error.statusCode || 500;
+    reply.code(status).send({ error: status === 500 ? '服务内部错误' : error.message });
+  });
 }, { prefix: basePath });
 
 const dist = resolve('dist');
 if (existsSync(dist)) {
-  await app.register(fastifyStatic, { root: dist, index: ['index.html'], prefix: `${basePath}/` });
+  await app.register(fastifyStatic, { root: dist, index: ['index.html'], prefix: `${assetPath}/` });
   app.setNotFoundHandler((request, reply) => {
-    const isConsolePage = basePath ? request.url === basePath || request.url.startsWith(`${basePath}/`) : true;
+    const isConsolePage = consolePaths.some((path) => !path || request.url === path || request.url.startsWith(`${path}/`));
     const isApi = request.url.startsWith(`${basePath}/api/`) || request.url.startsWith(`${basePath}/v1/`);
     if (request.method === 'GET' && isConsolePage && !isApi) return reply.sendFile('index.html');
     return reply.code(404).send({ error: 'Not found' });

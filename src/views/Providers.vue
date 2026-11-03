@@ -28,7 +28,7 @@ async function save() {
   await load();
 }
 function showSecret(result, name) {
-  const origin = `${window.location.origin}${import.meta.env.BASE_URL.replace(/\/$/, '')}`;
+  const origin = `${window.location.origin}${(import.meta.env.VITE_API_BASE || import.meta.env.BASE_URL).replace(/\/$/, '')}`;
   secret.value = { title: `连接 ${name}`, token: result.token, command: `utoken up --cloud-url ${origin} --provider-id ${result.id || selected.value.id} --provider-token ${result.token} --local-base-url http://127.0.0.1:8080` };
 }
 async function toggle(provider) {

@@ -1,5 +1,5 @@
 export async function api(method, path, body) {
-  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const base = (import.meta.env.VITE_API_BASE || import.meta.env.BASE_URL).replace(/\/$/, '');
   const response = await fetch(`${base}${path}`, {
     method,
     credentials: 'same-origin',
@@ -8,7 +8,8 @@ export async function api(method, path, body) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 401 && path !== '/api/admin/login') window.dispatchEvent(new Event('session-expired'));
+    if (response.status === 401 && path.startsWith('/api/user/') && path !== '/api/user/login') window.dispatchEvent(new Event('user-session-expired'));
+    else if (response.status === 401 && path !== '/api/admin/login' && !path.startsWith('/api/user/')) window.dispatchEvent(new Event('session-expired'));
     throw new Error(data.error || `请求失败 (${response.status})`);
   }
   return data;

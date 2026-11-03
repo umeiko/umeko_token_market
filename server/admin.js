@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { changePassword, db, getSettings, setSetting, verifyAdmin } from './db.js';
+import { changePassword, db, getSettings, getUserUsage, setSetting, verifyAdmin } from './db.js';
 import { createAgentToken, createApiKey, publicProvider } from './security.js';
 
 const sessions = new Map();
@@ -21,6 +21,13 @@ function keyView(row, gateway) {
 }
 
 export async function adminRoutes(app, { tunnel, gateway }) {
+  app.setErrorHandler((cause, request, reply) => {
+    request.log.error({ err: cause }, 'Admin API request failed');
+    if (reply.sent) return;
+    const status = cause.statusCode || 500;
+    reply.code(status).send({ error: status === 500 ? '管理服务内部错误' : cause.message });
+  });
+
   async function requireAdmin(request, reply) {
     const token = request.cookies.umeko_session;
     const session = token && sessions.get(token);
@@ -203,6 +210,52 @@ export async function adminRoutes(app, { tunnel, gateway }) {
       LEFT JOIN api_keys k ON k.id = l.key_id LEFT JOIN providers p ON p.id = l.provider_id
       ${where} ORDER BY l.id DESC LIMIT ? OFFSET ?`).all(...params, limit, (page - 1) * limit);
     return { logs, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
+  });
+
+  app.get('/api/admin/users', { preHandler: requireAdmin }, async (request) => {
+    const search = String(request.query.search || '').trim().toLowerCase().slice(0, 100);
+    const params = [];
+    let where = '';
+    if (/^\d+$/.test(search)) {
+      where = 'WHERE id = ?';
+      params.push(Number(search));
+    } else if (search) {
+      where = "WHERE email LIKE ? ESCAPE '\\'";
+      params.push(`${search.replace(/[\\%_]/g, (character) => `\\${character}`)}%`);
+    }
+    const users = db.prepare(`SELECT u.*, (SELECT COUNT(*) FROM api_keys k WHERE k.user_id = u.id) key_count
+      FROM users u ${where} ORDER BY u.id DESC LIMIT 50`).all(...params).map((user) => ({
+      id: user.id,
+      email: user.email,
+      enabled: Boolean(user.enabled),
+      created_at: user.created_at,
+      last_login_at: user.last_login_at,
+      key_count: user.key_count,
+      usage: getUserUsage(user.id),
+    }));
+    return { users };
+  });
+
+  app.patch('/api/admin/users/:id', { preHandler: requireAdmin }, async (request) => {
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(request.params.id);
+    if (!user) throw badRequest('用户不存在');
+    const body = request.body || {};
+    const quota5h = Math.min(1e12, Math.max(0, Math.floor(number(body.token_quota_5h, user.token_quota_5h))));
+    const quotaWeek = Math.min(1e12, Math.max(0, Math.floor(number(body.token_quota_week, user.token_quota_week))));
+    db.prepare('UPDATE users SET token_quota_5h = ?, token_quota_week = ?, enabled = ? WHERE id = ?')
+      .run(quota5h, quotaWeek, body.enabled === undefined ? user.enabled : bool(body.enabled), user.id);
+    return { ok: true };
+  });
+
+  app.post('/api/admin/users/:id/reset', { preHandler: requireAdmin }, async (request) => {
+    const scope = request.body?.scope || 'all';
+    if (!['five_hours', 'week', 'all'].includes(scope)) throw badRequest('无效的重置范围');
+    const assignments = [];
+    if (scope === 'five_hours' || scope === 'all') assignments.push("quota_reset_5h_at = datetime('now')");
+    if (scope === 'week' || scope === 'all') assignments.push("quota_reset_week_at = datetime('now')");
+    const result = db.prepare(`UPDATE users SET ${assignments.join(', ')} WHERE id = ?`).run(request.params.id);
+    if (!result.changes) throw badRequest('用户不存在');
+    return { ok: true };
   });
 
   app.get('/api/admin/settings', { preHandler: requireAdmin }, async () => ({ settings: getSettings() }));

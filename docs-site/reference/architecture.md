@@ -115,7 +115,9 @@ sequenceDiagram
 
 | 表 | 核心内容 |
 | --- | --- |
-| `admin_users` | 用户名、scrypt 哈希与盐 |
+| `admin_users` | 管理员用户名、scrypt 哈希与盐 |
+| `users` | 注册用户邮箱、五小时/七天额度、重置起算点和注册 IP |
+| `email_challenges` | 验证码 scrypt 哈希、过期时间、尝试次数和发送 IP |
 | `providers` | 名称、凭据哈希、最大并发、健康与心跳 |
 | `models` | 供应商、对外模型名、输入/输出价格、启用状态 |
 | `api_keys` | Key 哈希、额度、限流、累计用量、过期时间 |

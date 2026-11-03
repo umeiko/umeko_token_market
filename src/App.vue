@@ -6,6 +6,7 @@ import UiIcon from './components/UiIcon.vue';
 import Dashboard from './views/Dashboard.vue';
 import Providers from './views/Providers.vue';
 import Keys from './views/Keys.vue';
+import Users from './views/Users.vue';
 import Usage from './views/Usage.vue';
 import Logs from './views/Logs.vue';
 import Settings from './views/Settings.vue';
@@ -14,6 +15,7 @@ const tabs = [
   { id: 'dashboard', label: '运行概览', icon: 'dashboard', description: '服务状态与核心运营指标', component: Dashboard },
   { id: 'providers', label: '供应商与模型', icon: 'server', description: '管理本地节点、模型价格与并发', component: Providers },
   { id: 'keys', label: 'API Key', icon: 'key', description: '凭据下发、额度与访问限制', component: Keys },
+  { id: 'users', label: '注册用户', icon: 'users', description: '搜索用户、调整额度与重置用量', component: Users },
   { id: 'usage', label: '用量与账单', icon: 'chart', description: 'Token 消耗与费用统计', component: Usage },
   { id: 'logs', label: '请求日志', icon: 'logs', description: '追踪每一次中转请求', component: Logs },
   { id: 'settings', label: '系统设置', icon: 'settings', description: '服务参数与管理员安全', component: Settings },
@@ -69,7 +71,7 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button class="primary login-button" :disabled="busy">{{ busy ? '正在登录…' : '登录控制台' }}<UiIcon v-if="!busy" name="arrow" :size="17" /></button>
       </form>
-      <div class="login-foot"><UiIcon name="shield" :size="15" />凭据通过安全会话验证，请勿在公共设备上保存密码</div>
+      <div class="login-foot"><UiIcon name="shield" :size="15" />凭据通过安全会话验证，请勿在公共设备上保存密码<a href="./portal" class="portal-admin-link">模型用户入口</a></div>
     </section>
     <div class="login-decoration"><span></span><span></span><span></span></div>
   </main>

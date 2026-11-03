@@ -349,3 +349,56 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
   .login-page { padding: 16px; }
   .toast-stack { left: 15px; right: 15px; bottom: 15px; }
 }
+
+/* Registered user portal and administration */
+.honeypot { position: absolute !important; left: -10000px !important; width: 1px !important; height: 1px !important; opacity: 0 !important; }
+.code-input { text-align: center; font-size: 25px !important; letter-spacing: 10px; font-weight: 600; padding-left: 22px; }
+.login-secondary { display: flex; align-items: center; justify-content: space-between; }
+.login-secondary .text-button { font-size: 11px; }
+.dev-notice { margin: -5px 0 0; color: #8a6a2e; background: #fff7e8; border-radius: 6px; padding: 9px 11px; font-size: 9px; line-height: 1.6; }
+.portal-admin-link { margin-left: auto; color: var(--accent); white-space: nowrap; }
+.email-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
+.portal-quota-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+.progress.large { height: 6px; margin-top: 15px; }
+.portal-models { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
+.portal-models > article { display: flex; align-items: center; gap: 13px; padding: 20px; border-bottom: 1px solid var(--line-soft); }
+.portal-models > article:nth-child(odd) { border-right: 1px solid var(--line-soft); }
+.portal-models > article:nth-last-child(-n+2) { border-bottom: 0; }
+.model-glyph { width: 39px; height: 39px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 10px; color: var(--accent); background: var(--accent-soft); }
+.portal-models code { color: #205c6b; font-size: 12px; font-weight: 600; }
+.portal-models p { margin: 4px 0 0; color: var(--muted); font-size: 9px; }
+.portal-models dl { display: flex; gap: 17px; margin: 0 0 0 auto; }
+.portal-models dl div { text-align: right; }
+.portal-models dt { color: #8ca0a8; font-size: 8px; }
+.portal-models dd { margin: 4px 0 0; font-size: 10px; font-weight: 600; }
+.endpoint-grid { display: grid; gap: 15px; padding: 20px; }
+.endpoint-grid > div { display: grid; grid-template-columns: 100px 1fr; align-items: center; gap: 12px; }
+.endpoint-grid span { color: var(--muted); font-size: 11px; }
+.endpoint-grid code { color: #236878; background: #f1f7f9; border: 1px solid #e2edf0; border-radius: 6px; padding: 10px 12px; font-size: 11px; word-break: break-all; }
+.code-block { position: relative; padding: 19px 50px 19px 20px; background: #f6f9fa; }
+.code-block .icon-button { position: absolute; right: 13px; top: 13px; }
+.code-block pre { margin: 0; white-space: pre-wrap; word-break: break-word; color: #315d68; font: 11px/1.85 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.user-header { gap: 25px; }
+.user-search { width: min(360px, 45%); position: relative; display: flex; align-items: center; }
+.user-search > svg { position: absolute; left: 12px; color: #7f96a0; }
+.user-search input { padding-left: 39px; padding-right: 55px; font-size: 11px; }
+.user-search span { position: absolute; right: 10px; color: #8ca0a8; font-size: 8px; }
+.users-table td { vertical-align: middle; }
+.user-email { display: flex; align-items: center; gap: 10px; min-width: 230px; }
+.user-email > span { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #e4f2f5; color: var(--accent); font-size: 11px; font-weight: 600; }
+.user-email strong { display: block; font-size: 11px; font-weight: 500; }
+.user-email small { color: #8a9da5; }
+.quota-cell { min-width: 150px; color: var(--muted); font-size: 9px; }
+.quota-cell b { color: #496b76; font-weight: 500; }
+.users-table .row-actions { min-width: 320px; }
+@media (max-width: 1100px) { .portal-quota-grid { grid-template-columns: 1fr 1fr; } .portal-quota-grid > article:last-child { grid-column: 1 / -1; } }
+@media (max-width: 700px) {
+  .portal-quota-grid, .portal-models { grid-template-columns: 1fr; }
+  .portal-quota-grid > article:last-child { grid-column: auto; }
+  .portal-models > article:nth-child(odd) { border-right: 0; }
+  .portal-models > article { border-bottom: 1px solid var(--line-soft) !important; }
+  .portal-models > article:last-child { border-bottom: 0 !important; }
+  .user-header { align-items: stretch; flex-direction: column; }
+  .user-search { width: 100%; }
+  .endpoint-grid > div { grid-template-columns: 1fr; }
+}

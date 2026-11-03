@@ -24,7 +24,13 @@ QJsonObject ServiceControl::request(const QString &method, const QString &path, 
     loop.exec();
     const QByteArray data = reply->readAll();
     const QJsonDocument document = QJsonDocument::fromJson(data);
-    const bool success = reply->error() == QNetworkReply::NoError && document.isObject();
+    bool success = reply->error() == QNetworkReply::NoError && document.isObject();
+    if (success && path == QStringLiteral("/api/status")) {
+        const QJsonObject status = document.object();
+        success = status.contains(QStringLiteral("connectionState"))
+            && status.contains(QStringLiteral("localOnline"))
+            && status.contains(QStringLiteral("totalRequests"));
+    }
     if (ok) *ok = success;
     reply->deleteLater();
     return document.object();

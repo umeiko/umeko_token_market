@@ -11,6 +11,7 @@ function sidebar(): DefaultTheme.SidebarItem[] {
     ] },
     { text: '使用指南', items: [
       { text: '云端管理', link: '/guide/cloud' },
+      { text: '注册用户与自助门户', link: '/guide/users' },
       { text: '本地 CLI、Web 与 QML', link: '/guide/local' },
       { text: '计费、额度与并发', link: '/guide/billing' },
       { text: '安全与生产检查', link: '/guide/security' }

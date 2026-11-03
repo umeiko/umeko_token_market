@@ -39,8 +39,35 @@ db.exec(`
     enabled INTEGER NOT NULL DEFAULT 1,
     UNIQUE(provider_id, name)
   );
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    token_quota_5h INTEGER NOT NULL DEFAULT 2000000,
+    token_quota_week INTEGER NOT NULL DEFAULT 20000000,
+    quota_reset_5h_at TEXT,
+    quota_reset_week_at TEXT,
+    created_ip TEXT NOT NULL DEFAULT '',
+    last_login_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_users_created_ip ON users(created_ip, created_at);
+  CREATE TABLE IF NOT EXISTS email_challenges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    ip TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    consumed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_challenges_email ON email_challenges(email, created_at);
+  CREATE INDEX IF NOT EXISTS idx_challenges_ip ON email_challenges(ip, created_at);
   CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     key_hash TEXT NOT NULL UNIQUE,
     key_prefix TEXT NOT NULL,
@@ -81,6 +108,35 @@ db.exec(`
     ('request_timeout_ms', '300000');
   UPDATE settings SET value = 'Umeko Token Relay' WHERE key = 'site_name' AND value = 'UMEKO Relay';
 `);
+
+const keyColumns = db.prepare('PRAGMA table_info(api_keys)').all();
+if (!keyColumns.some((column) => column.name === 'user_id')) {
+  db.exec('ALTER TABLE api_keys ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, created_at)');
+
+export function getUserUsage(userId) {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!user) return null;
+  const usage = (window, resetAt) => db.prepare(`SELECT COALESCE(SUM(l.total_tokens), 0) used
+    FROM usage_logs l JOIN api_keys k ON k.id = l.key_id
+    WHERE k.user_id = ? AND l.created_at >= datetime('now', ?)
+      AND (? IS NULL OR l.created_at > ?)`).get(userId, window, resetAt, resetAt).used;
+  const fiveUsed = usage('-5 hours', user.quota_reset_5h_at);
+  const weekUsed = usage('-7 days', user.quota_reset_week_at);
+  return {
+    five_hours: {
+      used: fiveUsed, quota: user.token_quota_5h,
+      remaining: user.token_quota_5h > 0 ? Math.max(0, user.token_quota_5h - fiveUsed) : null,
+      reset_at: user.quota_reset_5h_at,
+    },
+    week: {
+      used: weekUsed, quota: user.token_quota_week,
+      remaining: user.token_quota_week > 0 ? Math.max(0, user.token_quota_week - weekUsed) : null,
+      reset_at: user.quota_reset_week_at,
+    },
+  };
+}
 
 export function transaction(callback) {
   db.exec('BEGIN IMMEDIATE');
