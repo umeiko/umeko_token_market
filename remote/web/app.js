@@ -16,7 +16,7 @@ async function api(path, data) {
   return value;
 }
 function signedOut() {
-  expires = 0; disconnectDesktop();
+  expires = 0; disconnectDesktop(); window.UmekoWorkspace?.reset();
   show('loading', false); show('workspace', false); show('login');
   $('desktop-login').close(); $('clipboard-dialog').close();
 }
@@ -40,10 +40,11 @@ async function refresh() {
     $('last-seen').textContent = device.online ? '刚刚' : device.lastSeen ? new Date(device.lastSeen).toLocaleString('zh-CN', { hour12: false }) : '尚未连接';
     $('offline-note').textContent = device.online ? '仅在本机连接器运行时允许远程访问。关闭连接器将断开桌面与 SSH 隧道。' : '离线可能是电脑关机、断网或连接器未启动。请提前在本机启动 Umeko 远程连接器。';
     $('connect-desktop').disabled = !device.online || !device.status?.rdp;
+    UmekoWorkspace.setAvailable(value.webTools && device.online && device.status?.ssh);
     $('session-time').textContent = `登录有效至 ${new Date(expires).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
   } catch (error) {
     if (!expires) signedOut();
-    else { $('online-badge').textContent = '状态暂不可用'; $('online-badge').classList.remove('online'); $('connect-desktop').disabled = true; }
+    else { $('online-badge').textContent = '状态暂不可用'; $('online-badge').classList.remove('online'); $('connect-desktop').disabled = true; UmekoWorkspace.setAvailable(false); }
   }
 }
 $('identity').addEventListener('change', async (event) => {
@@ -192,6 +193,12 @@ $('display').addEventListener('blur', () => keyboard?.reset());
 window.addEventListener('blur', () => keyboard?.reset());
 window.addEventListener('resize', scaleDesktop);
 document.addEventListener('fullscreenchange', scaleDesktop);
+$('desktop-ime').addEventListener('click', () => {
+  keyboard?.reset();
+  for (const code of [0xffe3, 0x20]) client?.sendKeyEvent(1, code);
+  for (const code of [0x20, 0xffe3]) client?.sendKeyEvent(0, code);
+  $('display').focus();
+});
 $('desktop-keyboard').addEventListener('click', () => { const open = $('mobile-input').classList.toggle('open'); show('send-mobile', open); if (open) $('mobile-input').focus(); scaleDesktop(); });
 $('send-mobile').addEventListener('click', () => {
   if (!client) return;

@@ -12,4 +12,15 @@ export QT_QPA_PLATFORM=xcb
 export LIBGL_ALWAYS_SOFTWARE=1
 export GALLIUM_DRIVER=llvmpipe
 export __GLX_VENDOR_LIBRARY_NAME=mesa
-exec /usr/bin/dbus-run-session -- /usr/bin/mate-session --disable-acceleration-check
+# xrdp bypasses the distro Xsession/im-config initialization.
+export XMODIFIERS=@im=fcitx
+export GTK_IM_MODULE=fcitx
+export QT_IM_MODULE=fcitx
+export SDL_IM_MODULE=fcitx
+# Fcitx must use this remote display's private session bus.
+exec /usr/bin/dbus-run-session -- /bin/sh -c '
+    if command -v fcitx5 >/dev/null 2>&1; then
+        fcitx5 -d --disable=wayland
+    fi
+    exec /usr/bin/mate-session --disable-acceleration-check
+'

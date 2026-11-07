@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { pipeline } from 'node:stream';
 import { digest, randomToken, verifySignature } from './auth.js';
+import { registerRemoteTools } from './tools.js';
 import { GuacParser, instruction, openDesktop } from './guacamole.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -20,10 +21,14 @@ export async function createRemoteServer(config) {
   const secure = origin.startsWith('https:');
   if (!secure && !['localhost', '127.0.0.1'].includes(new URL(origin).hostname)) throw new Error('远程访问必须使用 HTTPS');
   const cookieName = secure ? '__Secure-umeko_remote' : 'umeko_remote_dev';
-  const app = Fastify({ logger: config.logger ?? true, bodyLimit: 16384, trustProxy: '127.0.0.1' });
+  const logger = config.logger === false ? false : { ...(typeof config.logger === 'object' ? config.logger : {}),
+    serializers: { req: (request) => ({ method: request.method, url: request.url.split('?')[0],
+      remoteAddress: request.ip, remotePort: request.socket?.remotePort }) } };
+  const app = Fastify({ logger, bodyLimit: 16384, trustProxy: '127.0.0.1' });
   await app.register(cookie);
   await app.register(websocket, { options: { maxPayload: 1024 * 1024, perMessageDeflate: false } });
   const challenges = new Map(), sessions = new Map(), tickets = new Map(), channels = new Map(), limits = new Map();
+  let webTools;
   let device = null, lastSeen = null, persistPromise = Promise.resolve();
   if (config.stateFile) {
     try { lastSeen = JSON.parse(await readFile(config.stateFile, 'utf8')).lastSeen || null; } catch { /* First start. */ }
@@ -51,6 +56,7 @@ export async function createRemoteServer(config) {
     const session = sessions.get(id);
     if (!session) return;
     sessions.delete(id);
+    webTools?.endSession(id);
     for (const socket of session.sockets) socket.close(1008, 'Session ended');
     for (const [key, ticket] of tickets) if (ticket.sessionId === id) tickets.delete(key);
   }
@@ -134,6 +140,10 @@ export async function createRemoteServer(config) {
   const assets = {
     [`${base}/`]: ['web/index.html', 'text/html; charset=utf-8'],
     [`${base}/app.js`]: ['web/app.js', 'text/javascript; charset=utf-8'],
+    [`${base}/workspace.js`]: ['web/workspace.js', 'text/javascript; charset=utf-8'],
+    [`${base}/xterm.js`]: ['../node_modules/@xterm/xterm/lib/xterm.js', 'text/javascript; charset=utf-8'],
+    [`${base}/xterm.css`]: ['../node_modules/@xterm/xterm/css/xterm.css', 'text/css; charset=utf-8'],
+    [`${base}/xterm-fit.js`]: ['../node_modules/@xterm/addon-fit/lib/addon-fit.js', 'text/javascript; charset=utf-8'],
     [`${base}/input.js`]: ['web/input.js', 'text/javascript; charset=utf-8'],
     [`${base}/style.css`]: ['web/style.css', 'text/css; charset=utf-8'],
     [`${base}/guacamole.js`]: ['vendor/guacamole-common.js', 'text/javascript; charset=utf-8'],
@@ -173,7 +183,7 @@ export async function createRemoteServer(config) {
   app.get(`${base}/api/status`, async (request) => {
     const session = getSession(request);
     return {
-      authenticated: true, expires: session.expires,
+      authenticated: true, expires: session.expires, webTools: webTools.enabled,
       device: { name: config.device.name || '我的电脑', online: !!device, lastSeen,
         connectedAt: device?.connectedAt || null, status: device?.status || null },
     };
@@ -307,6 +317,8 @@ export async function createRemoteServer(config) {
       }
     });
   });
+  webTools = await registerRemoteTools({ app, base, config, getSession, checkOrigin, rateLimit,
+    openChannel, issueTicket, takeTicket, track, firstMessage });
   const heartbeat = setInterval(() => {
     const now = Date.now();
     for (const [id, value] of challenges) if (value.expires <= now) challenges.delete(id);
@@ -321,6 +333,7 @@ export async function createRemoteServer(config) {
   heartbeat.unref();
   app.addHook('preClose', async () => {
     clearInterval(heartbeat);
+    webTools.close();
     for (const id of sessions.keys()) endSession(id);
     if (device) { const state = device; disconnectDevice(state); state.socket.terminate(); }
     for (const socket of app.websocketServer.clients) socket.terminate();

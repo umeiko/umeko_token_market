@@ -13,11 +13,19 @@
 
 离线表示连接器不可达，可能是关机、断网、休眠或连接器未运行。页面不会把“离线”直接解释成“已关机”。网络恢复后，连接器自动重连。
 
-浏览器内的桌面由已有的 **xrdp** 服务提供，可能是单独的图形会话，不保证与物理显示器上的桌面相同。工作台支持键盘、鼠标、触摸、全屏和文本剪贴板。
+浏览器内的桌面由已有的 **xrdp** 服务提供，可能是单独的图形会话，不保证与物理显示器上的桌面相同。工作台支持键盘、鼠标、触摸、全屏和文本剪贴板。远程 MATE 会话独立启动 Fcitx5 拼音输入法；点击桌面工具栏“中/英”或按 Ctrl + 空格切换，输入拼音后用空格选择候选词。网页“键盘”输入框也支持在出差设备上输入中文后发送。
+
+## 网页终端与文件管理
+
+使用工作台密钥登录后，点击“网页终端”即可连接家中电脑的系统账号。支持交互式 Shell、终端尺寸调整、中文输入、复制粘贴和 Ctrl C。关闭终端会结束该 Shell；需要长期运行的任务请在 tmux 或 screen 中执行。
+
+点击“管理文件”，或桌面工具栏“文件”，可在电脑的不同目录之间切换。支持输入绝对路径、返回主目录或上一级、显示隐藏文件、新建文件夹、批量选择文件上传和下载。权限与配置的系统用户相同。上传直接流式写入目标目录，使用临时文件并在成功后重命名；同名文件拒绝覆盖，取消或失败会清理临时文件。每个上传文件最多 2 GiB，页面显示上传进度并提供取消按钮。下载也直接流式传输，不保存在云端磁盘。
+
+网页 SSH / SFTP 通过既有连接器的 SSH 通道访问本机，只在云端配置专用 SSH 凭据，并固定验证家中电脑的 Ed25519 SSH 主机指纹。网站登录私钥仍只在浏览器签名。退出或登录到期会关闭网页终端和文件连接。
 
 ## SSH 与 VS Code
 
-在工作台展开“SSH 隧道”的连接方法，下载独立的 `umeko-remote.mjs`。出差设备需要 Node.js 22 或更高版本，不需要安装 npm 依赖。
+在工作台展开“原生 SSH 连接方法”，下载独立的 `umeko-remote.mjs`。出差设备需要 Node.js 22 或更高版本，不需要安装 npm 依赖。
 
 ```bash
 node umeko-remote.mjs --identity /path/to/admin.umeko-key --url https://your-domain.example/remote
@@ -48,7 +56,7 @@ Host umeko-home
 
 - `admin.umeko-key`：所有者的登录私钥，应提前安全备份到出差设备。文件在浏览器中完成 Ed25519 签名，私钥不会发送给服务器，也不会存入网页本地存储。
 - `device.umeko-key`：家中电脑的连接器私钥，不要携带给其他人。设备身份不能作为网页管理身份登录。
-- 服务器配置只保存两种身份的公钥。挑战 60 秒有效且只可使用一次；连接票据 30 秒有效且只可使用一次。
+- 服务器配置保存工作台管理员和连接器身份的公钥；可选的网页 SSH 使用独立的服务凭据。挑战 60 秒有效且只可使用一次；连接票据 30 秒有效且只可使用一次。
 - 管理会话使用 Secure、HttpOnly、SameSite=Strict Cookie，最长 8 小时。退出或到期会关闭该会话的连接。
 - 系统密码仅短暂用于建立当前 RDP 会话，不写入配置、日志或数据库。
 - 管理界面禁止跨站嵌入，API 和浏览器 WebSocket 校验 Origin。设备与 SSH CLI 通过签名身份或一次性票据验证。
@@ -88,7 +96,19 @@ node remote/keys.js /private/path/umeko-remote
 
 创建独立的 `umeko-remote` 系统账号、配置目录和可写状态目录。将该账号的 home 设置为 `/var/lib/umeko-remote/home`，由该账号持有且权限 700，以便 FreeRDP 写入运行配置。安装 `remote/deploy/` 中的两个 systemd unit。检查 unit 的 Node.js、guacd 和应用路径。两个进程均只监听回环地址：Node.js `127.0.0.1:3101`、guacd `127.0.0.1:4822`。
 
-将 `remote/deploy/nginx.conf` 的 location 配置加入现有 HTTPS server，备份后运行 `nginx -t`，通过后再 reload。
+启用网页终端和文件管理时，额外在服务器私密目录生成专用 OpenSSH Ed25519 密钥，将公钥加入家中电脑目标用户的 `~/.ssh/authorized_keys`。建议加 `from="127.0.0.1",restrict,pty` 限制，只允许现有连接器从本机回环接入，禁用端口、Agent 和 X11 转发并允许终端。云端私钥只能由工作台服务账号读取，不加入仓库。配置中添加：
+
+```json
+"webSsh": {
+  "username": "your-user",
+  "privateKeyFile": "/etc/umeko-remote/home_ssh",
+  "hostKeySha256": "SHA256:HOME_ED25519_HOST_KEY_FINGERPRINT"
+}
+```
+
+在家中电脑用 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256` 获取主机指纹，通过可信方式写入配置；连接时必须匹配该主机指纹。未配置 `webSsh` 时，网页终端和文件入口禁用，已有桌面和原生 SSH 隧道继续可用。终端使用项目依赖中的 xterm.js，随服务提供，无需 CDN。
+
+将 `remote/deploy/nginx.conf` 的 location 配置加入现有 HTTPS server，备份后运行 `nginx -t`，通过后再 reload。 文件上传需要 `client_max_body_size 2g` 与 `proxy_request_buffering off`；Node.js 对普通 API 继续使用 16 KiB 限制，上传路由单独执行 2 GiB 流量限制。
 
 ```bash
 systemctl daemon-reload
