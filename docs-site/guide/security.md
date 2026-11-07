@@ -15,6 +15,15 @@
 
 用户接口限制每个 IP 和邮箱的验证码发送频率、每个 IP 的每日注册数，并支持一次性邮箱拦截、蜜罐和可选 Cloudflare Turnstile。生产环境必须配置 SMTP，不能启用开发验证码输出。IP 限流依赖真实客户端 IP，因此只有可信代理后才能启用 `TRUST_PROXY`。
 
+当前部署还包括：
+
+- 用户登录每 IP 每 10 分钟最多 20 次尝试，管理员登录每 10 分钟最多 10 次失败尝试；
+- Nginx 对验证码、用户登录、管理员登录分别实施更严格的专用限速和小容量请求体；
+- 所有 Cookie 写操作校验 `Origin` 与 `Sec-Fetch-Site`，拒绝跨站 POST/PATCH/DELETE；
+- 会话具有 7 天绝对有效期和 24 小时闲置过期，过期会话定时清理；
+- 用户与管理页面启用 CSP、禁止 iframe 嵌入、MIME 嗅探保护、Referrer-Policy 和权限策略；
+- 专用限速只覆盖认证端点，不对正常模型 API 使用统一 IP 限流。
+
 ## 公网部署
 
 - 必须启用 HTTPS/WSS，并设置 `COOKIE_SECURE=true`。

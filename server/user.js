@@ -1,10 +1,19 @@
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { db, getUserUsage } from './db.js';
-import { createApiKey } from './security.js';
+import { consumeRateLimit, createApiKey, sessionExpired, touchSession, verifySameOrigin } from './security.js';
 import { isDevelopmentEmail, sendVerificationEmail } from './mailer.js';
 
 const sessions = new Map();
+const loginAttempts = new Map();
 const SESSION_AGE = 7 * 86400000;
+setInterval(() => {
+  for (const [token, session] of sessions) if (sessionExpired(session)) sessions.delete(token);
+  for (const [ip, attempts] of loginAttempts) {
+    const recent = attempts.filter((time) => Date.now() - time < 600000);
+    if (recent.length) loginAttempts.set(ip, recent);
+    else loginAttempts.delete(ip);
+  }
+}, 60000).unref();
 const DISPOSABLE_DOMAINS = new Set(['10minutemail.com', 'guerrillamail.com', 'mailinator.com', 'temp-mail.org', 'tempmail.com', 'throwawaymail.com', 'yopmail.com', 'sharklasers.com', 'getnada.com', 'dispostable.com', 'maildrop.cc', 'fakeinbox.com', 'trashmail.com']);
 const error = (statusCode, message) => Object.assign(new Error(message), { statusCode });
 const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
@@ -32,15 +41,19 @@ export async function userRoutes(app, { tunnel }) {
     const status = cause.statusCode || 500;
     reply.code(status).send({ error: status === 500 ? '用户服务内部错误' : cause.message });
   });
+  app.addHook('onRequest', async (request) => {
+    if (['POST', 'PATCH', 'DELETE'].includes(request.method)) verifySameOrigin(request);
+  });
 
   async function requireUser(request, reply) {
     const token = request.cookies.utoken_user_session;
     const session = token && sessions.get(token);
     const user = session && db.prepare('SELECT * FROM users WHERE id = ? AND enabled = 1').get(session.userId);
-    if (!user || session.expires < Date.now()) {
+    if (!user || sessionExpired(session)) {
       if (token) sessions.delete(token);
       return reply.code(401).send({ error: '登录已失效，请重新验证邮箱' });
     }
+    touchSession(session);
     request.user = user;
   }
 
@@ -88,6 +101,7 @@ export async function userRoutes(app, { tunnel }) {
   });
 
   app.post('/api/user/login', async (request, reply) => {
+    if (!consumeRateLimit(loginAttempts, request.ip, 20, 600000)) throw error(429, '登录尝试过于频繁，请十分钟后再试');
     const body = request.body || {};
     const email = normalizeEmail(body.email);
     const code = String(body.code || '').trim();
@@ -111,7 +125,7 @@ export async function userRoutes(app, { tunnel }) {
     if (!user.enabled) throw error(403, '该账户已被停用，请联系管理员');
     db.prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?").run(user.id);
     const token = randomBytes(32).toString('base64url');
-    sessions.set(token, { userId: user.id, expires: Date.now() + SESSION_AGE });
+    sessions.set(token, { userId: user.id, expires: Date.now() + SESSION_AGE, lastSeen: Date.now() });
     reply.setCookie('utoken_user_session', token, {
       path: '/', httpOnly: true, sameSite: 'strict', secure: process.env.COOKIE_SECURE === 'true', maxAge: SESSION_AGE / 1000,
     });

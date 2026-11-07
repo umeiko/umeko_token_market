@@ -16,6 +16,39 @@ export function bearerToken(header = '') {
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
 
+export function verifySameOrigin(request) {
+  const fetchSite = request.headers['sec-fetch-site'];
+  if (fetchSite && !['same-origin', 'same-site', 'none'].includes(fetchSite)) {
+    throw Object.assign(new Error('拒绝跨站请求'), { statusCode: 403 });
+  }
+  const origin = request.headers.origin;
+  if (origin) {
+    let host;
+    try { host = new URL(origin).host; } catch { throw Object.assign(new Error('请求来源无效'), { statusCode: 403 }); }
+    if (host !== request.headers.host) throw Object.assign(new Error('请求来源与站点不一致'), { statusCode: 403 });
+  }
+}
+
+export function consumeRateLimit(windows, key, limit, windowMs) {
+  const now = Date.now();
+  const recent = (windows.get(key) || []).filter((time) => now - time < windowMs);
+  if (recent.length >= limit) {
+    windows.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  windows.set(key, recent);
+  return true;
+}
+
+export function sessionExpired(session, idleMs = 86400000) {
+  return !session || session.expires < Date.now() || Date.now() - session.lastSeen > idleMs;
+}
+
+export function touchSession(session) {
+  if (Date.now() - session.lastSeen > 300000) session.lastSeen = Date.now();
+}
+
 export function publicProvider(row, online = false) {
   return {
     id: row.id,

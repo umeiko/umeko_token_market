@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { changePassword, db, getSettings, getUserUsage, setSetting, verifyAdmin } from './db.js';
-import { createAgentToken, createApiKey, publicProvider } from './security.js';
+import { createAgentToken, createApiKey, publicProvider, sessionExpired, touchSession, verifySameOrigin } from './security.js';
 
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -27,14 +27,18 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     const status = cause.statusCode || 500;
     reply.code(status).send({ error: status === 500 ? '管理服务内部错误' : cause.message });
   });
+  app.addHook('onRequest', async (request) => {
+    if (['POST', 'PATCH', 'DELETE'].includes(request.method)) verifySameOrigin(request);
+  });
 
   async function requireAdmin(request, reply) {
     const token = request.cookies.umeko_session;
     const session = token && sessions.get(token);
-    if (!session || session.expires < Date.now()) {
+    if (sessionExpired(session)) {
       if (token) sessions.delete(token);
       return reply.code(401).send({ error: '登录已失效，请重新登录' });
     }
+    touchSession(session);
     request.admin = session;
   }
 
@@ -51,7 +55,7 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     }
     loginAttempts.delete(ip);
     const token = randomBytes(32).toString('base64url');
-    sessions.set(token, { ...user, expires: Date.now() + SESSION_AGE });
+    sessions.set(token, { ...user, expires: Date.now() + SESSION_AGE, lastSeen: Date.now() });
     reply.setCookie('umeko_session', token, {
       path: '/', httpOnly: true, sameSite: 'strict', secure: process.env.COOKIE_SECURE === 'true', maxAge: SESSION_AGE / 1000,
     });
