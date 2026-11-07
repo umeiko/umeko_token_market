@@ -74,9 +74,11 @@ async function fixture(t, wrongPin = false) {
   const base = `${origin}/remote`;
   const login = async (id) => { const { sign } = await import('node:crypto'); const post = (path, data) => fetch(`${base}/api/${path}`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(data) });
     const c = await (await post('challenge', { role: 'admin', keyId: id.id })).json(); const r = await post('verify', { id: c.id, signature: sign(null, Buffer.from(c.challenge), id.identity.privateKey).toString('base64') }); return r.headers.getSetCookie()[0].split(';')[0]; };
-  const stop = await startAgent({ url: base, identity: device.path, allowLocal: true, sshPort: ssh.address().port, rdpPort: ssh.address().port }, () => {});
+  const agentConfig = { url: base, identity: device.path, allowLocal: true, sshPort: ssh.address().port, rdpPort: ssh.address().port };
+  let stop = await startAgent(agentConfig, () => {});
   t.after(async () => { stop(); app.server.closeAllConnections(); await app.close(); for (const peer of peers) peer.end(); ssh.close(); await rm(directory, { recursive: true, force: true }); });
-  return { app, base, origin, home, directory, admin, device, login, resized: () => resized };
+  return { app, base, origin, home, directory, admin, device, login, peers,
+    stopAgent() { stop(); }, async restartAgent() { stop = await startAgent(agentConfig, () => {}); }, resized: () => resized };
 }
 
 test('file paths and upload names reject ambiguous or unsafe input', () => {
@@ -147,4 +149,48 @@ test('cancelled uploads remove partial files and preserve other files', { timeou
   await until(async () => (await readdir(f.home)).some((name) => name.endsWith('.part')));
   controller.abort(); await uploading;
   await until(async () => (await readdir(f.home)).length === 0);
+});
+
+
+async function terminal(f, cookie) {
+  const headers = { cookie, origin: f.origin, 'content-type': 'application/json' };
+  const response = await fetch(`${f.base}/api/terminal-ticket`, { method: 'POST', headers, body: '{}' });
+  const { ticket } = await response.json();
+  const socket = new WebSocket(`${f.base.replace('http', 'ws')}/ws/terminal`, { headers });
+  let ready = false, output = '';
+  socket.on('error', () => {});
+  socket.on('message', (data, binary) => {
+    if (binary) { output += data.toString(); if (socket.readyState === 1) socket.send(JSON.stringify({ type: 'ack', bytes: data.length })); }
+    else ready ||= JSON.parse(data).type === 'ready';
+  });
+  await once(socket, 'open'); socket.send(JSON.stringify({ ticket }));
+  await until(() => ready && output.includes('TEST SHELL'));
+  return { socket, output: () => output };
+}
+
+test('the same browser session reconnects terminal and SFTP after the home computer goes offline and returns', { timeout: 15000 }, async (t) => {
+  const f = await fixture(t), cookie = await f.login(f.admin), headers = { cookie };
+  const online = async () => (await (await fetch(`${f.base}/api/status`, { headers })).json()).device.online;
+  await until(online);
+  const first = await terminal(f, cookie); t.after(() => first.socket.terminate());
+  f.stopAgent();
+  await until(async () => !await online());
+  await until(() => first.socket.readyState === WebSocket.CLOSED);
+  await f.restartAgent(); await until(online);
+  const second = await terminal(f, cookie); t.after(() => second.socket.terminate());
+  second.socket.send(JSON.stringify({ type: 'input', data: 'AFTER_REBOOT\n' }));
+  await until(() => second.output().includes('AFTER_REBOOT'));
+  const files = await fetch(`${f.base}/api/files`, { headers }); assert.equal(files.status, 200);
+  assert.equal((await files.json()).path, f.home);
+});
+
+test('a remotely closed SSH transport is discarded before reconnecting with the same login', { timeout: 15000 }, async (t) => {
+  const f = await fixture(t), cookie = await f.login(f.admin), headers = { cookie };
+  await until(async () => (await (await fetch(`${f.base}/api/status`, { headers })).json()).device.online);
+  const first = await terminal(f, cookie); t.after(() => first.socket.terminate());
+  for (const peer of f.peers) peer._sock.end();
+  await until(() => first.socket.readyState === WebSocket.CLOSED);
+  const second = await terminal(f, cookie); t.after(() => second.socket.terminate());
+  second.socket.send(JSON.stringify({ type: 'input', data: 'NEW_SSH_CONNECTION\n' }));
+  await until(() => second.output().includes('NEW_SSH_CONNECTION'));
 });

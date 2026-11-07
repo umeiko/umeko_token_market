@@ -40,23 +40,38 @@ export async function registerRemoteTools(context) {
   const privateKey = enabled ? await readFile(setting.privateKeyFile) : null;
   if (enabled && (!setting.username || !/^SHA256:[A-Za-z0-9+/]{43}$/.test(setting.hostKeySha256 || ''))) throw new Error('Web SSH requires a username and pinned SHA256 host key');
   const connections = new Map();
+  function retire(state, code = 1012) {
+    if (state.disposed) return;
+    state.disposed = true;
+    if (connections.get(state.id) === state) connections.delete(state.id);
+    for (const socket of state.sockets) socket.close(code, 'Home SSH disconnected');
+    state.client.destroy(); state.channel?.destroy();
+  }
   function endSession(id) {
     const state = connections.get(id);
-    if (state) { connections.delete(id); state.client.destroy(); state.channel?.destroy(); }
+    if (state) retire(state, 1008);
   }
+  function disconnect() { for (const state of connections.values()) retire(state); }
+  const usable = (stream) => !stream || (!stream.destroyed && !stream.readableEnded && !stream.writableEnded);
   async function connection(id) {
     if (!enabled) throw error('此主机尚未配置网页 SSH 和文件管理', 409);
-    if (connections.has(id)) return connections.get(id).ready;
+    const previous = connections.get(id);
+    if (previous) {
+      if (!previous.disposed && usable(previous.channel) && usable(previous.sftp)) return previous.ready;
+      retire(previous);
+    }
     const client = new ssh2.Client();
-    const state = { client, channel: null, ready: null };
+    const state = { id, client, channel: null, sftp: null, ready: null, disposed: false, sockets: new Set() };
     connections.set(id, state);
-    const closed = () => { if (connections.get(id) === state) connections.delete(id); state.channel?.destroy(); };
-    client.on('error', () => {});
-    client.once('close', closed);
+    const closed = () => retire(state);
+    client.on('error', closed);
+    client.once('end', closed); client.once('close', closed);
     state.ready = (async () => {
       try {
         state.channel = await openChannel('ssh');
-        if (connections.get(id) !== state) { state.channel.destroy(); throw error('登录已结束', 401); }
+        if (state.disposed) { state.channel.destroy(); throw error('登录已结束', 401); }
+        state.channel.once('end', closed); state.channel.once('close', closed); state.channel.once('error', closed);
+        if (!usable(state.channel)) throw error('本机 SSH 连接已断开', 503);
         await new Promise((resolve, reject) => {
           const timer = setTimeout(() => reject(error('SSH 连接超时', 504)), 20000);
           const done = (err) => { clearTimeout(timer); client.off('error', failed); client.off('close', failed); err ? reject(error('SSH 验证失败，请检查本机连接或专用密钥', 503)) : resolve(); };
@@ -67,9 +82,12 @@ export async function registerRemoteTools(context) {
             hostVerifier: (key) => `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}` === setting.hostKeySha256,
             keepaliveInterval: 15000, keepaliveCountMax: 3, readyTimeout: 15000 });
         });
-        const sftp = await call(client, 'sftp');
-        return { client, sftp };
-      } catch (err) { if (connections.get(id) === state) endSession(id); throw err; }
+        if (state.disposed) throw error('本机 SSH 连接已断开', 503);
+        state.sftp = await call(client, 'sftp');
+        state.sftp.once('end', closed); state.sftp.once('close', closed); state.sftp.once('error', closed);
+        if (state.disposed || !usable(state.sftp)) throw error('本机 SSH 连接已断开', 503);
+        return state;
+      } catch (err) { retire(state); throw err; }
     })();
     return state.ready;
   }
@@ -140,10 +158,12 @@ export async function registerRemoteTools(context) {
         const credentials = takeTicket(ticket, 'terminal');
         if (credentials.sessionId !== getSession(request).id) throw error('Invalid session', 401);
         track(socket, credentials.sessionId);
-        const { client } = await connection(credentials.sessionId);
-        if (closed) return;
+        const state = await connection(credentials.sessionId);
+        const { client } = state;
+        if (closed || state.disposed) return;
+        state.sockets.add(socket); socket.once('close', () => state.sockets.delete(socket));
         const dimension = (n, fallback) => Number.isInteger(n) ? Math.min(500, Math.max(2, n)) : fallback;
-        shell = await new Promise((resolve, reject) => client.shell({ term: 'xterm-256color', cols: dimension(cols, 100), rows: dimension(rows, 30) }, (err, stream) => err ? reject(err) : resolve(stream)));
+        shell = await call(client, 'shell', { term: 'xterm-256color', cols: dimension(cols, 100), rows: dimension(rows, 30) });
         if (closed) return shell.destroy();
         socket.send(JSON.stringify({ type: 'ready', username: setting.username }));
         const send = (data) => {
@@ -172,5 +192,5 @@ export async function registerRemoteTools(context) {
       } catch { if (socket.readyState === 1) { socket.send(JSON.stringify({ type: 'error', message: 'SSH 连接失败，请检查本机连接器和 SSH 服务' })); socket.close(1011); } }
     });
   });
-  return { enabled, endSession, close() { for (const id of connections.keys()) endSession(id); } };
+  return { enabled, endSession, disconnect, close: disconnect };
 }

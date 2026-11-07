@@ -103,6 +103,7 @@ export async function createRemoteServer(config) {
   function disconnectDevice(state) {
     if (device !== state) return;
     device = null;
+    webTools?.disconnect();
     for (const [id, channel] of channels) {
       if (channel.device !== state) continue;
       clearTimeout(channel.timeout); channel.reject?.(fail('本机连接已断开', 503)); channel.stream?.destroy(); channel.socket?.terminate(); channels.delete(id);
@@ -247,7 +248,8 @@ export async function createRemoteServer(config) {
       const stream = createWebSocketStream(socket);
       stream.on('error', () => {});
       channel.stream = stream;
-      socket.once('close', () => channels.delete(id));
+      // A WebSocket EOF alone can leave a half-open SSH stream cached.
+      socket.once('close', () => { channels.delete(id); stream.destroy(); });
       socket.send(JSON.stringify({ type: 'ready' }));
       channel.accept(stream);
     });

@@ -120,6 +120,7 @@
     observer = new ResizeObserver(() => { if (fit === localFit) { localFit.fit(); send({ type: 'resize', cols: term.cols, rows: term.rows }); } }); observer.observe($('terminal'));
     try {
       const { ticket } = await api('terminal-ticket', {}); if (terminal !== term) return;
+      let failure = '';
       const ws = socket = new WebSocket(`${location.origin.replace(/^http/, 'ws')}${base}/ws/terminal`); ws.binaryType = 'arraybuffer';
       ws.onopen = () => ws.send(JSON.stringify({ ticket, cols: term.cols, rows: term.rows }));
       term.onData((data) => { for (const chunk of data.match(/[\s\S]{1,4096}/gu) || []) send({ type: 'input', data: chunk }); });
@@ -127,9 +128,9 @@
         if (terminal !== term) return;
         if (event.data instanceof ArrayBuffer) {
           const bytes = new Uint8Array(event.data); term.write(bytes, () => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ack', bytes: bytes.length })); });
-        } else { const result = JSON.parse(event.data); $('terminal-status').textContent = result.type === 'ready' ? `${result.username} · 已连接本机 SSH` : result.message || '连接失败'; if (result.type === 'ready') { term.options.disableStdin = false; term.focus(); } }
+        } else { const result = JSON.parse(event.data); if (result.type === 'error') failure = result.message; $('terminal-status').textContent = result.type === 'ready' ? `${result.username} · 已连接本机 SSH` : result.message || '连接失败'; if (result.type === 'ready') { term.options.disableStdin = false; term.focus(); } }
       };
-      ws.onclose = () => { if (terminal === term) { $('terminal-status').textContent = 'SSH 已断开，可重新连接'; term.options.disableStdin = true; term.write('\r\n\x1b[90m[连接已结束]\x1b[0m\r\n'); } };
+      ws.onclose = (event) => { if (terminal === term) { $('terminal-status').textContent = failure || (event.code === 1012 ? '本机 SSH 连接已结束；电脑上线后可重新连接' : 'SSH 已断开，可重新连接'); term.options.disableStdin = true; term.write('\r\n\x1b[90m[连接已结束]\x1b[0m\r\n'); } };
       ws.onerror = () => ws.close();
     } catch (err) { if (terminal === term) $('terminal-status').textContent = err.message; }
   }
