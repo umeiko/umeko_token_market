@@ -8,3 +8,4 @@ local-app/build/
 *.umeko-key
 remote/*.local.json
 remote/__pycache__/
+remote/**/__pycache__/

@@ -11,6 +11,7 @@
     "remote:server": "node remote/server.js",
     "remote:agent": "node remote/agent.js",
     "remote:test": "node --test remote/test/*.test.js",
+    "remote:test:service": "python3 -m unittest discover -s remote/test -p '*_test.py'",
     "start": "node server/index.js",
     "agent": "node agent/index.js",
     "dev:server": "node --watch server/index.js",

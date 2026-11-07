@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -113,6 +113,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (!configPath) throw new Error('用法：node remote/agent.js <连接器配置文件>');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   if (!config.identity.startsWith('/')) config.identity = resolve(dirname(configPath), config.identity);
-  const stop = await startAgent(config);
+  const statusFile = process.env.UMEKO_REMOTE_STATUS_FILE;
+  let statusWrite = Promise.resolve();
+  const report = (value) => {
+    console.log(JSON.stringify(value));
+    if (statusFile) statusWrite = statusWrite.then(async () => {
+      await mkdir(dirname(statusFile), { recursive: true, mode: 0o700 });
+      await writeFile(`${statusFile}.tmp`, JSON.stringify({ ...value, pid: process.pid }) + '\n', { mode: 0o600 });
+      await rename(`${statusFile}.tmp`, statusFile);
+    }).catch(() => console.error('Cannot update local connector status'));
+  };
+  const stop = await startAgent(config, report);
   for (const event of ['SIGINT', 'SIGTERM']) process.on(event, () => { stop(); setTimeout(() => process.exit(0), 100).unref(); });
 }

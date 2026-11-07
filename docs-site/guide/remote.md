@@ -4,12 +4,12 @@
 
 ## 日常使用
 
-1. 在家中电脑打开 **Umeko 远程连接器**。窗口显示“已连接”后保持运行。
+1. 在家中电脑打开 **Umeko 远程连接器**。点击“开启开机自启动”，以后开机会自动建立连接，无需显示器或登录桌面。
 2. 电脑需要持续供电、联网，并避免自动休眠。连接器不能从关机状态启动电脑。
 3. 在出差设备打开工作台，选择自己的 `admin.umeko-key` 文件登录。
 4. 工作台显示在线状态、系统运行时间，以及 SSH、桌面服务状态。
 5. 点击“连接桌面”，输入家中电脑的系统账号和密码；也可将密码留空，在 xrdp 登录画面中输入。
-6. 使用完毕后断开桌面并退出工作台。关闭家中连接器会关闭全部反向连接。
+6. 使用完毕后断开桌面并退出工作台。本机点击“断开”会关闭全部反向连接。开启自启动后，关闭窗口仍保持后台连接；未开启时关闭窗口会断开。
 
 离线表示连接器不可达，可能是关机、断网、休眠或连接器未运行。页面不会把“离线”直接解释成“已关机”。网络恢复后，连接器自动重连。
 
@@ -114,12 +114,36 @@ python3 remote/desktop.py ~/.config/umeko-remote/agent.json
 node remote/agent.js ~/.config/umeko-remote/agent.json
 ```
 
-桌面界面需要 Python 3 的 Tkinter。它管理同一个 Node.js 连接器，启动窗口即连接，关闭窗口即断开，不会自动更改电脑的开机自启或休眠设置。
+桌面界面需要 Python 3 的 Tkinter，只负责控制独立的 Node.js 后台服务。点击“开启开机自启动”会注册 `umeko-remote-agent.service` 用户服务并为当前用户启用 linger，让用户服务管理器在系统启动时运行、退出登录后继续运行。系统不允许设置 linger 时，界面会显示错误，不会把“桌面登录后自启”当成真正的开机启动。
+
+后台运行文件安装到 `~/.local/share/umeko-remote/`，配置与设备密钥留在 `~/.config/umeko-remote/`，不依赖项目所在的外置或 DATA 磁盘。服务直接启动 Node.js，清除图形显示环境变量，并会在网络暂不可用时重试连接。已有的 SSH 和 xrdp 系统服务也应设置为开机启动；xrdp 使用自己的虚拟图形会话，无需物理显示器。
+
+开启自启动后关闭窗口不会停止服务；“断开”只停止当前连接，下次开机仍自动连接。关闭“开机自启动”只取消后续开机启动，不会修改其他用户服务所需的 linger 设置。未开启自启动时，关闭窗口会停止本次连接。该功能不会更改系统桌面自动登录、引导器、休眠或固件设置。
+
+无图形环境下也可以使用同一控制器：
+
+```bash
+python3 remote/service.py enable --config ~/.config/umeko-remote/agent.json
+python3 remote/service.py status
+python3 remote/service.py stop
+python3 remote/service.py start
+python3 remote/service.py disable
+```
+
+桌面启动器在缺少 `DISPLAY` 和 `WAYLAND_DISPLAY` 时会直接启动后台服务，不创建窗口；也可显式传 `--headless`。开机服务自身不导入 Tkinter。
+
+```bash
+python3 remote/desktop.py --headless
+systemctl --user status umeko-remote-agent.service
+journalctl --user -u umeko-remote-agent.service -n 30 --no-pager
+loginctl show-user "$USER" -p Linger
+```
 
 ## 验证与排障
 
 ```bash
 npm run remote:test
+npm run remote:test:service
 systemctl status umeko-remote umeko-guacd
 journalctl -u umeko-remote -n 50 --no-pager
 ```
@@ -127,3 +151,5 @@ journalctl -u umeko-remote -n 50 --no-pager
 集成测试覆盖签名认证、错误公钥、重放、角色隔离、跨域限制、在线状态、原生 SSH 流量、退出断连、设备断连及 guacd 握手。部署后应另外验证真实 xrdp 登录画面和 SSH 主机指纹。
 
 无法连接桌面时，检查本机 xrdp 是否监听配置端口、连接器是否在线、guacd 服务是否运行。网页无法登录时，确认使用管理员密钥、浏览器支持 Ed25519 Web Crypto，并检查域名是否与配置的 origin 完全一致。
+
+如果系统认证成功后马上断开，检查 `/var/log/xrdp-sesman.log` 和自己的 `~/.xorgxrdp.*.log`。MATE 在 xrdp 虚拟显示器上进行图形加速检查时，可能在 `gl_failed` 后以 139 退出；此时隧道仍然在线，真正结束的是桌面会话。对于使用 MATE 的 xrdp 会话，可以备份已有的 `~/startwm.sh` 后，采用 `remote/deploy/startwm.sh` 中的启动方式：独立 D-Bus 会话、强制 X11、软件渲染及 `--disable-acceleration-check`。这些环境变量只作用于远程桌面，不更改物理显示器上的 KDE 会话。不要在未备份用户自定义会话脚本时直接覆盖它。
