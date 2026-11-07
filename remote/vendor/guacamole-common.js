@@ -10116,7 +10116,7 @@ Guacamole.Mouse = function Mouse(element) {
     element.addEventListener("mouseout", function(e) {
 
         // Get parent of the element the mouse pointer is leaving
-       	if (!e) e = window.event;
+        if (!e) e = window.event;
 
         // Check that mouseout is due to actually LEAVING the element
         var target = e.relatedTarget || e.toElement;
