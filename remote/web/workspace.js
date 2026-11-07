@@ -3,7 +3,11 @@
   const $ = (id) => document.getElementById(id);
   const base = location.pathname.replace(/\/+$/, '');
   let directory = '', parent = '', entries = [], requestId = 0, filesAbort, uploading = false, uploadCancelled = false, xhr;
-  let terminal, fit, socket, observer;
+  let terminal, fit, socket, observer, loading = false, available = false;
+  function fileActions() {
+    $('files-upload').disabled = uploading || loading || !directory || !available;
+    $('files-mkdir').disabled = loading || !directory || !available;
+  }
   const show = (id, yes = true) => { $(id).hidden = !yes; };
   const message = (text) => { $('files-status').textContent = text; };
   async function api(path, body, signal) {
@@ -44,7 +48,8 @@
     message(`${visible.length} 项${visible.length < entries.length ? `（另有 ${entries.length - visible.length} 个隐藏项）` : ''}${visible.length ? '' : ' · 当前目录为空'}`);
   }
   async function load(path = '') {
-    const id = ++requestId; filesAbort?.abort(); filesAbort = new AbortController(); message('正在读取目录…');
+    const id = ++requestId; filesAbort?.abort(); filesAbort = new AbortController();
+    loading = true; fileActions(); $('file-entries').replaceChildren(); message('正在读取目录…');
     try {
       const result = await api(`files${path ? `?path=${encodeURIComponent(path)}` : ''}`, undefined, filesAbort.signal);
       if (id !== requestId) return;
@@ -52,7 +57,9 @@
       $('files-path').value = directory; $('files-user').textContent = `${result.username} · SFTP 安全连接`;
       $('files-parent').disabled = directory === '/'; render();
       if (result.truncated) message('此目录超过 10,000 项，仅显示前 10,000 项。');
-    } catch (err) { if (id === requestId && err.name !== 'AbortError') message(err.message); }
+    } catch (err) {
+      if (id === requestId && err.name !== 'AbortError') { $('files-path').value = directory; render(); message(err.message); }
+    } finally { if (id === requestId) { loading = false; fileActions(); } }
   }
   function openFiles() { overlay('files-view', true); $('files-path').focus(); load(directory); }
   function download(path) {
@@ -77,7 +84,7 @@
   $('open-files').addEventListener('click', openFiles); $('desktop-files').addEventListener('click', openFiles);
   $('close-files').addEventListener('click', () => overlay('files-view', false));
   $('files-home').addEventListener('click', () => load()); $('files-parent').addEventListener('click', () => load(parent));
-  $('files-refresh').addEventListener('click', () => load(directory)); $('files-hidden').addEventListener('change', render);
+  $('files-refresh').addEventListener('click', () => load(directory)); $('files-hidden').addEventListener('change', () => { if (!loading) render(); });
   $('files-path-form').addEventListener('submit', (event) => { event.preventDefault(); load($('files-path').value); });
   $('files-mkdir').addEventListener('click', () => { $('folder-name').value = ''; $('folder-dialog').showModal(); });
   $('folder-cancel').addEventListener('click', () => $('folder-dialog').close());
@@ -87,15 +94,15 @@
     catch (err) { message(err.message); $('folder-dialog').close(); } finally { button.disabled = false; }
   });
   $('files-upload').addEventListener('change', async (event) => {
-    const files = [...event.target.files]; event.target.value = ''; if (!files.length || uploading || !directory) return;
-    const target = directory; uploading = true; uploadCancelled = false; $('files-upload').disabled = true; show('files-transfer');
+    const files = [...event.target.files]; event.target.value = ''; if (!files.length || uploading || loading || !directory || !available) return;
+    const target = directory; uploading = true; uploadCancelled = false; fileActions(); show('files-transfer');
     const results = [];
     for (const file of files) {
       if (uploadCancelled) break;
       try { if (file.size > 2 * 1024 ** 3) throw new Error('单个文件最大支持 2 GiB'); await upload(file, target); results.push(`${file.name}：已上传`); }
       catch (err) { results.push(`${file.name}：${err.message}`); }
     }
-    uploading = false; xhr = null; $('files-upload').disabled = false; show('files-transfer', false);
+    uploading = false; xhr = null; fileActions(); show('files-transfer', false);
     if (directory === target) await load(directory);
     message(results.join('；'));
   });
@@ -132,7 +139,7 @@
   $('terminal-copy').addEventListener('click', async () => { try { const text = terminal?.getSelection(); if (text) await navigator.clipboard.writeText(text); else $('terminal-status').textContent = '请先在终端中选择需要复制的文字'; } catch { $('terminal-status').textContent = '请使用 Ctrl Shift C 复制'; } });
   $('terminal-paste').addEventListener('click', async () => { try { terminal?.paste(await navigator.clipboard.readText()); terminal?.focus(); } catch { $('terminal-status').textContent = '请使用 Ctrl Shift V 粘贴'; } });
   window.UmekoWorkspace = {
-    setAvailable(yes) { for (const id of ['open-files', 'desktop-files', 'connect-terminal']) $(id).disabled = !yes; },
+    setAvailable(yes) { available = !!yes; fileActions(); for (const id of ['open-files', 'desktop-files', 'connect-terminal']) $(id).disabled = !yes; },
     reset() { uploadCancelled = true; xhr?.abort(); filesAbort?.abort(); ++requestId; disconnectTerminal(); overlay('files-view', false); overlay('terminal-view', false); $('folder-dialog').close(); entries = []; directory = ''; $('file-entries').replaceChildren(); },
   };
   window.addEventListener('pagehide', () => { xhr?.abort(); filesAbort?.abort(); disconnectTerminal(); });
