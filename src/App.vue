@@ -83,6 +83,7 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
       <nav class="admin-nav" aria-label="管理导航">
         <button v-for="tab in tabs" :key="tab.id" :class="{ active: current === tab.id }" :aria-current="current === tab.id ? 'page' : undefined" @click="select(tab.id)"><UiIcon :name="tab.icon" /><span>{{ tab.label }}</span><i v-if="current === tab.id"></i></button>
       </nav>
+      <a class="sidebar-status" href="/remote/"><UiIcon name="server" /><div><strong>远程工作台 ↗</strong><small>专属密钥 · 桌面与 SSH</small></div></a>
       <div class="sidebar-status"><span class="status-dot"></span><div><strong>网关运行中</strong><small>OpenAI Compatible</small></div></div>
       <div class="sidebar-footer"><span class="avatar">{{ user.username.slice(0, 1).toUpperCase() }}</span><div class="grow"><strong>{{ user.username }}</strong><small>系统管理员</small></div><button class="icon-button" title="退出登录" @click="logout"><UiIcon name="logout" :size="17" /></button></div>
     </aside>

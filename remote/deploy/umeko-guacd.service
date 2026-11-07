@@ -1,0 +1,23 @@
+[Unit]
+Description=Umeko loopback-only Guacamole desktop gateway
+After=network.target
+
+[Service]
+Type=simple
+User=umeko-remote
+Group=umeko-remote
+Environment=HOME=/var/lib/umeko-remote/home
+ExecStart=/usr/local/sbin/guacd -f -b 127.0.0.1 -l 4822 -L warning
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/umeko-remote/home
+MemoryMax=512M
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

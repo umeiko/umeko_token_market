@@ -1,0 +1,129 @@
+# 私人远程工作台
+
+远程工作台供电脑所有者出差时使用，与 Token Relay 用户账号、管理员密码、API Key 完全隔离。入口为站点的 `/remote/`，也可从管理员侧栏进入。
+
+## 日常使用
+
+1. 在家中电脑打开 **Umeko 远程连接器**。窗口显示“已连接”后保持运行。
+2. 电脑需要持续供电、联网，并避免自动休眠。连接器不能从关机状态启动电脑。
+3. 在出差设备打开工作台，选择自己的 `admin.umeko-key` 文件登录。
+4. 工作台显示在线状态、系统运行时间，以及 SSH、桌面服务状态。
+5. 点击“连接桌面”，输入家中电脑的系统账号和密码；也可将密码留空，在 xrdp 登录画面中输入。
+6. 使用完毕后断开桌面并退出工作台。关闭家中连接器会关闭全部反向连接。
+
+离线表示连接器不可达，可能是关机、断网、休眠或连接器未运行。页面不会把“离线”直接解释成“已关机”。网络恢复后，连接器自动重连。
+
+浏览器内的桌面由已有的 **xrdp** 服务提供，可能是单独的图形会话，不保证与物理显示器上的桌面相同。工作台支持键盘、鼠标、触摸、全屏和文本剪贴板。
+
+## SSH 与 VS Code
+
+在工作台展开“SSH 隧道”的连接方法，下载独立的 `umeko-remote.mjs`。出差设备需要 Node.js 22 或更高版本，不需要安装 npm 依赖。
+
+```bash
+node umeko-remote.mjs --identity /path/to/admin.umeko-key --url https://your-domain.example/remote
+```
+
+隧道工具只监听出差设备的 `127.0.0.1:2222`。保持窗口打开，在另一个终端连接：
+
+```bash
+ssh -p 2222 -o HostKeyAlias=umeko-home your-user@127.0.0.1
+```
+
+工作台密钥只授权隧道。SSH 本身仍验证家中电脑原有的 SSH 密钥或系统密码，并使用 SSH 的端到端加密。
+
+VS Code Remote SSH 可使用：
+
+```text
+Host umeko-home
+    HostName 127.0.0.1
+    Port 2222
+    User your-user
+    HostKeyAlias umeko-home
+    # IdentityFile ~/.ssh/your-home-computer-key
+```
+
+关闭隧道工具即停止转发。会话最长 8 小时，到期后重新运行工具。关闭网页会话会终止属于该会话的桌面连接；独立启动的 CLI 隧道具有自己的密钥会话。
+
+## 密钥与访问边界
+
+- `admin.umeko-key`：所有者的登录私钥，应提前安全备份到出差设备。文件在浏览器中完成 Ed25519 签名，私钥不会发送给服务器，也不会存入网页本地存储。
+- `device.umeko-key`：家中电脑的连接器私钥，不要携带给其他人。设备身份不能作为网页管理身份登录。
+- 服务器配置只保存两种身份的公钥。挑战 60 秒有效且只可使用一次；连接票据 30 秒有效且只可使用一次。
+- 管理会话使用 Secure、HttpOnly、SameSite=Strict Cookie，最长 8 小时。退出或到期会关闭该会话的连接。
+- 系统密码仅短暂用于建立当前 RDP 会话，不写入配置、日志或数据库。
+- 管理界面禁止跨站嵌入，API 和浏览器 WebSocket 校验 Origin。设备与 SSH CLI 通过签名身份或一次性票据验证。
+- 连接器仅转发预先配置的 `127.0.0.1` SSH / RDP 端口，不提供任意目标地址或任意命令执行接口。
+- 不新增公网 SSH、RDP、VNC 或 guacd 监听端口。远程工作台只通过现有 HTTPS 入口访问。
+
+密钥文件遗失或泄露后，在安全的本地环境生成新密钥，将服务器相应公钥替换并重启 `umeko-remote`。重启会撤销全部会话和票据。不要把私钥、实际配置或系统密码提交到 Git。
+
+## 部署
+
+工作台是独立 Node.js 进程，不依赖 Token Relay 的 SQLite 数据库或管理员认证。现有中转服务继续单进程运行。
+
+服务器需要 Node.js 22 和 Apache Guacamole **guacd 1.6.0**，其中启用 RDP 协议。Debian 13 可从 Apache 官方源码构建，安装 `freerdp3-dev` 等构建依赖。FreeRDP 3 在该 Guacamole 版本中属于实验支持，部署后需要实际验证桌面连接。某些 FreeRDP 版本在头文件中触发弃用警告，可通过配置时设置 `CFLAGS='-O2 -Wno-error=deprecated-declarations'` 处理；保留其他编译错误检查。
+
+`remote/vendor/` 保留 Apache Guacamole 官方 JavaScript 客户端及许可证，不通过第三方 CDN 加载代码。
+
+先在仓库外的私密目录生成密钥：
+
+```bash
+node remote/keys.js /private/path/umeko-remote
+```
+
+创建仅服务账号可读的 `/etc/umeko-remote/server.json`。示例中的公钥来自生成的 `public-keys.json`：
+
+```json
+{
+  "origin": "https://your-domain.example",
+  "path": "/remote",
+  "port": 3101,
+  "guacdPort": 4822,
+  "desktopUser": "your-user",
+  "stateFile": "/var/lib/umeko-remote/state.json",
+  "adminKeys": [{"id": "ADMIN_KEY_ID", "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"}],
+  "device": {"id": "DEVICE_KEY_ID", "publicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n", "name": "家中电脑"}
+}
+```
+
+创建独立的 `umeko-remote` 系统账号、配置目录和可写状态目录。将该账号的 home 设置为 `/var/lib/umeko-remote/home`，由该账号持有且权限 700，以便 FreeRDP 写入运行配置。安装 `remote/deploy/` 中的两个 systemd unit。检查 unit 的 Node.js、guacd 和应用路径。两个进程均只监听回环地址：Node.js `127.0.0.1:3101`、guacd `127.0.0.1:4822`。
+
+将 `remote/deploy/nginx.conf` 的 location 配置加入现有 HTTPS server，备份后运行 `nginx -t`，通过后再 reload。
+
+```bash
+systemctl daemon-reload
+systemctl enable --now umeko-guacd umeko-remote
+nginx -t && systemctl reload nginx
+```
+
+本机配置放在 `~/.config/umeko-remote/agent.json`，权限 600：
+
+```json
+{
+  "url": "https://your-domain.example/remote",
+  "identity": "/private/path/device.umeko-key",
+  "sshPort": 22,
+  "rdpPort": 3389
+}
+```
+
+在已安装项目 npm 依赖的家中电脑运行桌面连接器，或使用 CLI：
+
+```bash
+python3 remote/desktop.py ~/.config/umeko-remote/agent.json
+node remote/agent.js ~/.config/umeko-remote/agent.json
+```
+
+桌面界面需要 Python 3 的 Tkinter。它管理同一个 Node.js 连接器，启动窗口即连接，关闭窗口即断开，不会自动更改电脑的开机自启或休眠设置。
+
+## 验证与排障
+
+```bash
+npm run remote:test
+systemctl status umeko-remote umeko-guacd
+journalctl -u umeko-remote -n 50 --no-pager
+```
+
+集成测试覆盖签名认证、错误公钥、重放、角色隔离、跨域限制、在线状态、原生 SSH 流量、退出断连、设备断连及 guacd 握手。部署后应另外验证真实 xrdp 登录画面和 SSH 主机指纹。
+
+无法连接桌面时，检查本机 xrdp 是否监听配置端口、连接器是否在线、guacd 服务是否运行。网页无法登录时，确认使用管理员密钥、浏览器支持 Ed25519 Web Crypto，并检查域名是否与配置的 origin 完全一致。
