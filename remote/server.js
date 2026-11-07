@@ -134,6 +134,7 @@ export async function createRemoteServer(config) {
   const assets = {
     [`${base}/`]: ['web/index.html', 'text/html; charset=utf-8'],
     [`${base}/app.js`]: ['web/app.js', 'text/javascript; charset=utf-8'],
+    [`${base}/input.js`]: ['web/input.js', 'text/javascript; charset=utf-8'],
     [`${base}/style.css`]: ['web/style.css', 'text/css; charset=utf-8'],
     [`${base}/guacamole.js`]: ['vendor/guacamole-common.js', 'text/javascript; charset=utf-8'],
     [`${base}/umeko-remote.mjs`]: ['client.js', 'text/javascript; charset=utf-8'],

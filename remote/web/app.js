@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const base = location.pathname.replace(/\/+$/, '');
 let identity = null, expires = 0, client = null, keyboard = null, noticeTimer;
+let pointerCleanup = [];
 const show = (id, visible = true) => { $(id).hidden = !visible; };
 function notice(message) { $('notice').textContent = message; show('notice'); clearTimeout(noticeTimer); noticeTimer = setTimeout(() => show('notice', false), 6500); }
 async function api(path, data) {
@@ -118,6 +119,8 @@ function createTunnel(ticket) {
   return tunnel;
 }
 function disconnectDesktop() {
+  for (const dispose of pointerCleanup) dispose();
+  pointerCleanup = [];
   keyboard?.reset(); keyboard = null;
   client?.disconnect(); client = null;
   $('display').replaceChildren();
@@ -170,11 +173,8 @@ $('desktop-form').addEventListener('submit', async (event) => {
     keyboard.onkeydown = (keysym) => { client?.sendKeyEvent(1, keysym); return false; };
     keyboard.onkeyup = (keysym) => { client?.sendKeyEvent(0, keysym); };
     const mouse = new Guacamole.Mouse(client.getDisplay().getElement());
-    mouse.on(['mousedown', 'mousemove', 'mouseup'], (event) => {
-      $('display').focus(); client?.sendMouseState(event.state, true);
-    });
     const touch = new Guacamole.Mouse.Touchscreen(client.getDisplay().getElement());
-    touch.on(['mousedown', 'mousemove', 'mouseup'], (event) => client?.sendMouseState(event.state, true));
+    pointerCleanup = [mouse, touch].map((source) => UmekoRemoteInput.bindPointer(source, client, () => $('display').focus()));
     client.onclipboard = (stream, type) => {
       if (type !== 'text/plain') { stream.sendAck('Only text is supported', 256); return; }
       const reader = new Guacamole.StringReader(stream); let content = '';
