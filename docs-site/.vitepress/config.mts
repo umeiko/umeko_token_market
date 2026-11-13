@@ -15,7 +15,6 @@ function sidebar(): DefaultTheme.SidebarItem[] {
       { text: '自定义供应商与别名', link: '/guide/providers' },
       { text: '注册用户与自助门户', link: '/guide/users' },
       { text: '本地 CLI、Web 与 QML', link: '/guide/local' },
-      { text: '私人远程工作台', link: '/guide/remote' },
       { text: '计费、额度与并发', link: '/guide/billing' },
       { text: '安全与生产检查', link: '/guide/security' }
     ] },

@@ -26,32 +26,7 @@ const active = computed(() => tabs.find((tab) => tab.id === current.value));
 const ready = ref(false), user = ref(null), username = ref(''), password = ref(''), error = ref(''), busy = ref(false), nav = ref(false);
 const siteName = ref('Umeko Token Relay');
 const loginMethod = ref('password'), sshPublicKey = ref(''), sshChallenge = ref(null), sshSignature = ref('');
-const identityFileName = ref('');
 const sshCommand = computed(() => sshChallenge.value ? `printf '%s' '${sshChallenge.value.challenge}' > /tmp/umeko-admin-challenge\nssh-keygen -Y sign -f ~/.ssh/id_ed25519 -n umeko-admin /tmp/umeko-admin-challenge` : '');
-function base64(buffer) {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
-}
-async function identityLogin(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  busy.value = true; error.value = ''; identityFileName.value = file.name;
-  try {
-    const identity = JSON.parse(await file.text());
-    if (identity.version !== 1 || typeof identity.privateKey !== 'string') throw new Error('请选择有效的 .umeko-key 身份文件');
-    const bytes = Uint8Array.from(atob(identity.privateKey), (char) => char.charCodeAt(0));
-    const privateKey = await crypto.subtle.importKey('pkcs8', bytes.buffer, { name: 'Ed25519' }, false, ['sign']);
-    const challenge = await api('POST', '/api/admin/ed25519/challenge', {});
-    const signature = await crypto.subtle.sign({ name: 'Ed25519' }, privateKey, new TextEncoder().encode(challenge.challenge));
-    const result = await api('POST', '/api/admin/ed25519/login', { id: challenge.id, challenge: challenge.challenge, signature: base64(signature) });
-    user.value = result.user;
-    await loadSettings();
-  } catch (e) {
-    error.value = `无法使用此身份文件：${e.message}`;
-  } finally {
-    event.target.value = '';
-    busy.value = false;
-  }
-}
 async function createSshChallenge() {
   busy.value = true; error.value = '';
   try { sshChallenge.value = await api('POST', '/api/admin/ssh/challenge', { publicKey: sshPublicKey.value }); }
@@ -114,20 +89,15 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
     <section class="login-card">
       <div class="login-brand"><span class="brand-mark"><UiIcon name="activity" :size="24" /></span><span>UMEKO <b>TOKEN</b></span></div>
       <div class="login-heading"><span class="eyebrow">ADMIN CONSOLE</span><h1>欢迎回来</h1><p>登录以管理你的模型中转服务</p></div>
-      <div class="login-methods"><button :class="{ active: loginMethod === 'password' }" @click="loginMethod = 'password'; error = ''">密码登录</button><button :class="{ active: loginMethod === 'ssh' }" @click="loginMethod = 'ssh'; error = ''">SSH Key</button><button :class="{ active: loginMethod === 'identity' }" @click="loginMethod = 'identity'; error = ''">身份 Key</button></div>
+      <div class="login-methods"><button :class="{ active: loginMethod === 'password' }" @click="loginMethod = 'password'; error = ''">密码登录</button><button :class="{ active: loginMethod === 'ssh' }" @click="loginMethod = 'ssh'; error = ''">SSH Key</button></div>
       <form v-if="loginMethod === 'password'" class="stack" @submit.prevent="login">
         <div class="field"><label for="username">管理员账号</label><input id="username" v-model="username" autocomplete="username" placeholder="请输入账号" required autofocus /></div>
         <div class="field"><label for="password">密码</label><input id="password" v-model="password" type="password" autocomplete="current-password" placeholder="请输入密码" required /></div>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button class="primary login-button" :disabled="busy">{{ busy ? '正在登录…' : '登录控制台' }}<UiIcon v-if="!busy" name="arrow" :size="17" /></button>
       </form>
-      <div v-else-if="loginMethod === 'identity'" class="stack">
-        <div class="field"><label for="identity-private-key">.umeko-key 身份文件</label><input id="identity-private-key" type="file" accept=".umeko-key,application/json" :disabled="busy" @change="identityLogin" /><span class="help-text">选择 admin.umeko-key。Ed25519 签名仅在浏览器本地完成，私钥不会上传。</span></div>
-        <p v-if="identityFileName" class="help-text">{{ busy ? `正在验证 ${identityFileName}…` : identityFileName }}</p>
-        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-      </div>
       <div v-else class="stack">
-        <template v-if="!sshChallenge"><div class="field"><label for="ssh-public-key">已授权的 OpenSSH 公钥</label><textarea id="ssh-public-key" v-model="sshPublicKey" rows="3" placeholder="ssh-ed25519 AAAA..." required></textarea><span class="help-text">先在系统设置中添加公钥，可直接复用云电脑 Key。</span></div><p v-if="error" class="form-error">{{ error }}</p><button class="primary login-button" :disabled="busy || !sshPublicKey.trim()" @click="createSshChallenge">获取签名挑战</button></template>
+        <template v-if="!sshChallenge"><div class="field"><label for="ssh-public-key">已授权的 OpenSSH 公钥</label><textarea id="ssh-public-key" v-model="sshPublicKey" rows="3" placeholder="ssh-ed25519 AAAA..." required></textarea><span class="help-text">先在系统设置中添加 Token Seller 管理员公钥。</span></div><p v-if="error" class="form-error">{{ error }}</p><button class="primary login-button" :disabled="busy || !sshPublicKey.trim()" @click="createSshChallenge">获取签名挑战</button></template>
         <template v-else><div class="field"><label>在保存私钥的电脑执行</label><div class="command-box"><pre><code>{{ sshCommand }}</code></pre></div><span class="help-text">会生成 /tmp/umeko-admin-challenge.sig。挑战 5 分钟内有效。</span></div><div class="field"><label>上传签名文件</label><input type="file" accept=".sig" @change="readSignature" /></div><p v-if="error" class="form-error">{{ error }}</p><button class="primary login-button" :disabled="busy || !sshSignature" @click="sshLogin">验证签名并登录</button><button class="text-button self-start" @click="sshChallenge = null; sshSignature = ''">重新获取挑战</button></template>
       </div>
       <div class="login-foot"><UiIcon name="shield" :size="15" />凭据通过安全会话验证，请勿在公共设备上保存密码<a href="./portal" class="portal-admin-link">模型用户入口</a></div>
@@ -142,7 +112,6 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
       <nav class="admin-nav" aria-label="管理导航">
         <button v-for="tab in tabs" :key="tab.id" :class="{ active: current === tab.id }" :aria-current="current === tab.id ? 'page' : undefined" @click="select(tab.id)"><UiIcon :name="tab.icon" /><span>{{ tab.label }}</span><i v-if="current === tab.id"></i></button>
       </nav>
-      <a class="sidebar-status" href="/remote/"><UiIcon name="server" /><div><strong>远程工作台 ↗</strong><small>专属密钥 · 桌面与 SSH</small></div></a>
       <div class="sidebar-status"><span class="status-dot"></span><div><strong>网关运行中</strong><small>OpenAI Compatible</small></div></div>
       <div class="sidebar-footer"><span class="avatar">{{ user.username.slice(0, 1).toUpperCase() }}</span><div class="grow"><strong>{{ user.username }}</strong><small>系统管理员</small></div><button class="icon-button" title="退出登录" @click="logout"><UiIcon name="logout" :size="17" /></button></div>
     </aside>

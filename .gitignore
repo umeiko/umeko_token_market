@@ -5,7 +5,3 @@ data/
 local-app/build/
 *.log
 .DS_Store
-*.umeko-key
-remote/*.local.json
-remote/__pycache__/
-remote/**/__pycache__/

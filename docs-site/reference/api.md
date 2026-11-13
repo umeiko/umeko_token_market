@@ -110,7 +110,7 @@ Content-Type: application/json
 
 ### GET /api/admin/ssh-keys · POST /api/admin/ssh-keys · DELETE /api/admin/ssh-keys/:id
 
-仅管理员会话可用，用于列出、授权和移除 OpenSSH 公钥。可直接复用云电脑公钥，私钥和签名私钥不会上传。
+仅管理员会话可用，用于列出、授权和移除 Token Seller 管理员的 OpenSSH 公钥。私钥和签名私钥不会上传。
 
 ### POST /api/admin/logout
 

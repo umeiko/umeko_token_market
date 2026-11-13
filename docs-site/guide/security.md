@@ -24,12 +24,6 @@
 - 用户与管理页面启用 CSP、禁止 iframe 嵌入、MIME 嗅探保护、Referrer-Policy 和权限策略；
 - 专用限速只覆盖认证端点，不对正常模型 API 使用统一 IP 限流。
 
-## 管理员身份文件登录
-
-除密码和 OpenSSH 签名外，管理面板支持 `.umeko-key` Ed25519 JSON 身份文件。浏览器在本地完成一次性随机挑战签名，私钥不会上传。服务器只保存匹配的 Ed25519 SPKI 公钥，挑战 5 分钟有效且只能使用一次，挑战接口另有 IP 限流。
-
-生产配置通过 `ADMIN_ED25519_PUBLIC_KEY_FILE` 指定公钥文件，`ADMIN_ED25519_USER_ID` 指定对应管理员 ID。公钥必须与身份文件属于同一密钥对，X25519 与 Ed25519 不能混用。
-
 ## 公网部署
 
 - 必须启用 HTTPS/WSS，并设置 `COOKIE_SECURE=true`。
