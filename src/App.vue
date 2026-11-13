@@ -25,6 +25,30 @@ const current = ref(tabs.some((tab) => tab.id === initial) ? initial : 'dashboar
 const active = computed(() => tabs.find((tab) => tab.id === current.value));
 const ready = ref(false), user = ref(null), username = ref(''), password = ref(''), error = ref(''), busy = ref(false), nav = ref(false);
 const siteName = ref('Umeko Token Relay');
+const loginMethod = ref('password'), sshPublicKey = ref(''), sshChallenge = ref(null), sshSignature = ref('');
+const sshCommand = computed(() => sshChallenge.value ? `printf '%s' '${sshChallenge.value.challenge}' > /tmp/umeko-admin-challenge\nssh-keygen -Y sign -f ~/.ssh/id_ed25519 -n umeko-admin /tmp/umeko-admin-challenge` : '');
+async function createSshChallenge() {
+  busy.value = true; error.value = '';
+  try { sshChallenge.value = await api('POST', '/api/admin/ssh/challenge', { publicKey: sshPublicKey.value }); }
+  catch (e) { error.value = e.message; }
+  finally { busy.value = false; }
+}
+function readSignature(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { sshSignature.value = String(reader.result).split(',')[1] || ''; };
+  reader.readAsDataURL(file);
+}
+async function sshLogin() {
+  busy.value = true; error.value = '';
+  try {
+    const result = await api('POST', '/api/admin/ssh/login', { id: sshChallenge.value.id, publicKey: sshPublicKey.value, signature: sshSignature.value });
+    user.value = result.user;
+    await loadSettings();
+  } catch (e) { error.value = e.message; }
+  finally { busy.value = false; }
+}
 async function loadSettings() {
   try { siteName.value = (await api('GET', '/api/admin/settings')).settings.site_name || 'Umeko Token Relay'; } catch { /* Login page does not need settings. */ }
 }
@@ -65,12 +89,17 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
     <section class="login-card">
       <div class="login-brand"><span class="brand-mark"><UiIcon name="activity" :size="24" /></span><span>UMEKO <b>TOKEN</b></span></div>
       <div class="login-heading"><span class="eyebrow">ADMIN CONSOLE</span><h1>欢迎回来</h1><p>登录以管理你的模型中转服务</p></div>
-      <form class="stack" @submit.prevent="login">
+      <div class="login-methods"><button :class="{ active: loginMethod === 'password' }" @click="loginMethod = 'password'; error = ''">密码登录</button><button :class="{ active: loginMethod === 'ssh' }" @click="loginMethod = 'ssh'; error = ''">SSH Key</button></div>
+      <form v-if="loginMethod === 'password'" class="stack" @submit.prevent="login">
         <div class="field"><label for="username">管理员账号</label><input id="username" v-model="username" autocomplete="username" placeholder="请输入账号" required autofocus /></div>
         <div class="field"><label for="password">密码</label><input id="password" v-model="password" type="password" autocomplete="current-password" placeholder="请输入密码" required /></div>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button class="primary login-button" :disabled="busy">{{ busy ? '正在登录…' : '登录控制台' }}<UiIcon v-if="!busy" name="arrow" :size="17" /></button>
       </form>
+      <div v-else class="stack">
+        <template v-if="!sshChallenge"><div class="field"><label for="ssh-public-key">已授权的 OpenSSH 公钥</label><textarea id="ssh-public-key" v-model="sshPublicKey" rows="3" placeholder="ssh-ed25519 AAAA..." required></textarea><span class="help-text">先在系统设置中添加公钥，可直接复用云电脑 Key。</span></div><p v-if="error" class="form-error">{{ error }}</p><button class="primary login-button" :disabled="busy || !sshPublicKey.trim()" @click="createSshChallenge">获取签名挑战</button></template>
+        <template v-else><div class="field"><label>在保存私钥的电脑执行</label><div class="command-box"><pre><code>{{ sshCommand }}</code></pre></div><span class="help-text">会生成 /tmp/umeko-admin-challenge.sig。挑战 5 分钟内有效。</span></div><div class="field"><label>上传签名文件</label><input type="file" accept=".sig" @change="readSignature" /></div><p v-if="error" class="form-error">{{ error }}</p><button class="primary login-button" :disabled="busy || !sshSignature" @click="sshLogin">验证签名并登录</button><button class="text-button self-start" @click="sshChallenge = null; sshSignature = ''">重新获取挑战</button></template>
+      </div>
       <div class="login-foot"><UiIcon name="shield" :size="15" />凭据通过安全会话验证，请勿在公共设备上保存密码<a href="./portal" class="portal-admin-link">模型用户入口</a></div>
     </section>
     <div class="login-decoration"><span></span><span></span><span></span></div>

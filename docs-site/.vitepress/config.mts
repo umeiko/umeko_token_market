@@ -12,6 +12,7 @@ function sidebar(): DefaultTheme.SidebarItem[] {
     ] },
     { text: '使用指南', items: [
       { text: '云端管理', link: '/guide/cloud' },
+      { text: '自定义供应商与别名', link: '/guide/providers' },
       { text: '注册用户与自助门户', link: '/guide/users' },
       { text: '本地 CLI、Web 与 QML', link: '/guide/local' },
       { text: '私人远程工作台', link: '/guide/remote' },

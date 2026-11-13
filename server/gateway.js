@@ -1,5 +1,6 @@
 import { anthropicResponseStream, anthropicToOpenAI } from './anthropic.js';
-import { db, getUserUsage, transaction } from './db.js';
+import { db, getKeyWindowUsage, getUserUsage, transaction } from './db.js';
+import { forwardDirectProvider } from './directProvider.js';
 import { bearerToken, hashToken } from './security.js';
 
 const estimateTokens = (text) => Math.max(1, Math.ceil(String(text).length / 4));
@@ -10,6 +11,7 @@ export class Gateway {
     this.tunnel = tunnel;
     this.settings = settings;
     this.keyActivity = new Map();
+    this.providerActivity = new Map();
     this.rateWindows = new Map();
   }
 
@@ -26,6 +28,12 @@ export class Gateway {
     }
     if (key.budget_quota_micros > 0 && key.used_cost_micros >= key.budget_quota_micros) {
       throw Object.assign(new Error('API Key 的费用额度已用尽'), { statusCode: 429 });
+    }
+    if (key.quota_5h > 0 && getKeyWindowUsage(key.id, '-5 hours', key.quota_reset_5h_at) >= key.quota_5h) {
+      throw Object.assign(new Error('API Key 的五小时 Token 限额已用尽'), { statusCode: 429 });
+    }
+    if (key.quota_week > 0 && getKeyWindowUsage(key.id, '-7 days', key.quota_reset_week_at) >= key.quota_week) {
+      throw Object.assign(new Error('API Key 的每周 Token 限额已用尽'), { statusCode: 429 });
     }
     if (key.user_id) {
       const user = db.prepare('SELECT enabled FROM users WHERE id = ?').get(key.user_id);
@@ -48,23 +56,45 @@ export class Gateway {
     return key;
   }
 
+  providerActive(providerId) {
+    return (this.providerActivity.get(Number(providerId)) || 0) + this.tunnel.activeCount(providerId);
+  }
+
+  providerOnline(row) {
+    return row.provider_type && row.provider_type !== 'tunnel'
+      ? Boolean(row.base_url)
+      : this.tunnel.isOnline(row.provider_id);
+  }
+
+  reserveProvider(providerId) {
+    const id = Number(providerId);
+    this.providerActivity.set(id, (this.providerActivity.get(id) || 0) + 1);
+    return () => {
+      const current = (this.providerActivity.get(id) || 1) - 1;
+      if (current > 0) this.providerActivity.set(id, current);
+      else this.providerActivity.delete(id);
+    };
+  }
+
   models() {
-    return db.prepare(`SELECT m.id, m.name, m.provider_id FROM models m
+    return db.prepare(`SELECT m.id, m.name, m.provider_id, p.provider_type, p.base_url FROM models m
       JOIN providers p ON p.id = m.provider_id
       WHERE m.enabled = 1 AND p.enabled = 1 ORDER BY m.name`).all()
-      .filter((model) => this.tunnel.isOnline(model.provider_id))
+      .filter((model) => this.providerOnline(model))
       .map((model) => ({ id: model.name, object: 'model', created: 0, owned_by: 'umeko-relay' }));
   }
 
   selectProvider(modelName) {
     const candidates = db.prepare(`SELECT m.*, p.name AS provider_name, p.max_concurrency,
+      p.provider_type, p.base_url, p.api_key_ciphertext, p.api_key_iv, p.api_key_tag,
+      p.client_mode, p.client_pattern, p.client_error_field, p.client_error_message, p.client_error_code,
       p.description, p.token_prefix, p.last_seen_at, p.last_latency_ms, p.created_at AS provider_created_at
       FROM models m JOIN providers p ON p.id = m.provider_id
       WHERE m.name = ? AND m.enabled = 1 AND p.enabled = 1`).all(modelName)
-      .filter((row) => this.tunnel.isOnline(row.provider_id))
-      .sort((a, b) => this.tunnel.activeCount(a.provider_id) - this.tunnel.activeCount(b.provider_id));
+      .filter((row) => this.providerOnline(row))
+      .sort((a, b) => this.providerActive(a.provider_id) - this.providerActive(b.provider_id));
     if (!candidates.length) throw Object.assign(new Error(`模型 ${modelName} 不存在或所在供应商离线`), { statusCode: 503 });
-    const available = candidates.find((row) => row.max_concurrency === 0 || this.tunnel.activeCount(row.provider_id) < row.max_concurrency);
+    const available = candidates.find((row) => row.max_concurrency === 0 || this.providerActive(row.provider_id) < row.max_concurrency);
     if (!available) throw Object.assign(new Error('供应商并发已满，请稍后重试'), { statusCode: 429 });
     return available;
   }
@@ -82,6 +112,26 @@ export class Gateway {
     };
   }
 
+  validateClient(provider, userAgent = '') {
+    if (!provider.client_pattern) return;
+    let expression;
+    if (provider.client_mode === 'template') {
+      const escaped = provider.client_pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expression = new RegExp(`^${escaped.replaceAll('\\*', '.*')}$`);
+    } else {
+      expression = new RegExp(provider.client_pattern);
+    }
+    if (expression.test(userAgent)) return;
+    const defaultMessage = `供应商 ${provider.provider_name} 拒绝了客户端 ${userAgent || '未知'}，请使用要求的客户端`;
+    const message = (provider.client_error_message || defaultMessage)
+      .replaceAll('{{userAgent}}', userAgent || '未知')
+      .replaceAll('{{provider}}', provider.provider_name);
+    throw Object.assign(new Error(message), {
+      statusCode: 403,
+      customResponse: { field: provider.client_error_field || 'message', message, code: provider.client_error_code || 'client_mismatch' },
+    });
+  }
+
   async proxy(request, reply, format = 'openai') {
     const anthropic = format === 'anthropic';
     const authorization = request.headers.authorization || (request.headers['x-api-key'] ? `Bearer ${request.headers['x-api-key']}` : '');
@@ -93,10 +143,12 @@ export class Gateway {
     const modelName = source.model || '';
     if (!modelName) throw Object.assign(new Error('请求中缺少 model'), { statusCode: 400 });
     const model = this.selectProvider(modelName);
+    this.validateClient(model, String(request.headers['user-agent'] || ''));
     const release = this.reserve(key);
+    const releaseProvider = this.reserveProvider(model.provider_id);
     const startedAt = Date.now();
-    const body = { ...source, model: model.name };
-    if (path === 'chat/completions' && body.stream) {
+    const body = { ...source, model: model.upstream_name || model.name };
+    if (path === 'chat/completions' && body.stream && model.provider_type !== 'anthropic') {
       body.stream_options = { ...(body.stream_options || {}), include_usage: true };
     }
     const controller = new AbortController();
@@ -104,18 +156,19 @@ export class Gateway {
     reply.raw.on('close', onDisconnect);
     let forwarded;
     try {
-      forwarded = await this.tunnel.forward(
-        { id: model.provider_id },
-        {
-          method: request.method,
-          path: `/v1/${path}`,
-          body: JSON.stringify(body),
-          timeoutMs: Number(this.settings().request_timeout_ms || 300000),
-          signal: controller.signal,
-        },
-      );
+      const options = {
+        method: request.method,
+        path: `/v1/${path}`,
+        body: JSON.stringify(body),
+        timeoutMs: Number(this.settings().request_timeout_ms || 300000),
+        signal: controller.signal,
+      };
+      forwarded = model.provider_type && model.provider_type !== 'tunnel'
+        ? await forwardDirectProvider(model, options)
+        : await this.tunnel.forward({ id: model.provider_id }, options);
     } catch (error) {
       reply.raw.off('close', onDisconnect);
+      releaseProvider();
       release();
       this.record({ requestId: forwarded?.requestId || crypto.randomUUID(), key, model, usage: {}, status: error.statusCode || 502, latency: Date.now() - startedAt, error: error.message });
       throw error;
@@ -124,7 +177,7 @@ export class Gateway {
     const completion = this.observe(forwarded.stream, body, isStream, forwarded.status)
       .then((usage) => this.record({ requestId: forwarded.requestId, key, model, usage, status: forwarded.status, latency: Date.now() - startedAt }))
       .catch((error) => this.record({ requestId: forwarded.requestId, key, model, usage: {}, status: 499, latency: Date.now() - startedAt, error: error.message }))
-      .finally(() => { reply.raw.off('close', onDisconnect); release(); });
+      .finally(() => { reply.raw.off('close', onDisconnect); releaseProvider(); release(); });
     completion.catch(() => {});
     reply.code(forwarded.status);
     for (const [name, value] of Object.entries(forwarded.headers)) {
@@ -205,5 +258,11 @@ function pathIsEmbedding(body) {
 
 export function sendGatewayError(reply, error) {
   const status = error.statusCode || 500;
-  return reply.code(status).send(asOpenAIError(status === 500 ? '中转服务内部错误' : error.message, status === 429 ? 'rate_limit_error' : 'api_error'));
+  const payload = asOpenAIError(status === 500 ? '中转服务内部错误' : error.message, status === 429 ? 'rate_limit_error' : 'api_error');
+  if (error.customResponse) {
+    const field = /^[a-zA-Z_][a-zA-Z0-9_]{0,40}$/.test(error.customResponse.field) ? error.customResponse.field : 'message';
+    payload.error[field] = error.customResponse.message;
+    payload.error.code = error.customResponse.code;
+  }
+  return reply.code(status).send(payload);
 }

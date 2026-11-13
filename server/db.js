@@ -109,11 +109,45 @@ db.exec(`
   UPDATE settings SET value = 'Umeko Token Relay' WHERE key = 'site_name' AND value = 'UMEKO Relay';
 `);
 
-const keyColumns = db.prepare('PRAGMA table_info(api_keys)').all();
-if (!keyColumns.some((column) => column.name === 'user_id')) {
-  db.exec('ALTER TABLE api_keys ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+function addColumn(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
+addColumn('api_keys', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
+addColumn('api_keys', 'quota_5h', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('api_keys', 'quota_week', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('api_keys', 'allow_user_apply', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('api_keys', 'quota_reset_5h_at', 'TEXT');
+addColumn('api_keys', 'quota_reset_week_at', 'TEXT');
+addColumn('providers', 'provider_type', "TEXT NOT NULL DEFAULT 'tunnel'");
+addColumn('providers', 'base_url', "TEXT NOT NULL DEFAULT ''");
+addColumn('providers', 'api_key_ciphertext', "TEXT NOT NULL DEFAULT ''");
+addColumn('providers', 'api_key_iv', "TEXT NOT NULL DEFAULT ''");
+addColumn('providers', 'api_key_tag', "TEXT NOT NULL DEFAULT ''");
+addColumn('providers', 'api_key_prefix', "TEXT NOT NULL DEFAULT ''");
+addColumn('providers', 'client_mode', "TEXT NOT NULL DEFAULT 'regex'");
+addColumn('providers', 'client_pattern', "TEXT NOT NULL DEFAULT ''");
+addColumn('providers', 'client_error_field', "TEXT NOT NULL DEFAULT 'message'");
+addColumn('providers', 'client_error_message', "TEXT NOT NULL DEFAULT ''");
+addColumn('providers', 'client_error_code', "TEXT NOT NULL DEFAULT ''");
+addColumn('models', 'upstream_name', "TEXT NOT NULL DEFAULT ''");
 db.exec('CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, created_at)');
+db.exec(`CREATE TABLE IF NOT EXISTS admin_authorized_keys (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  public_key TEXT NOT NULL UNIQUE,
+  fingerprint TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+
+export function getKeyWindowUsage(keyId, window, resetAt = null) {
+  return db.prepare(`SELECT COALESCE(SUM(total_tokens), 0) used FROM usage_logs
+    WHERE key_id = ? AND created_at >= datetime('now', ?)
+      AND (? IS NULL OR created_at > ?)`).get(keyId, window, resetAt, resetAt).used;
+}
 
 export function getUserUsage(userId) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);

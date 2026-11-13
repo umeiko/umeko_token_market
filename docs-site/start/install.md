@@ -30,6 +30,7 @@
 | `EMAIL_DEV_MODE` | `false` | 无 SMTP 时将验证码打印到服务端日志，仅限开发 |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | 空 | Cloudflare Turnstile，配置后强制人机验证 |
 | `BLOCK_DISPOSABLE_EMAIL` | `true` | 是否拦截常见一次性邮箱域名 |
+| `PROVIDER_ENCRYPTION_KEY` | 空 | 云端上游 Key 的 AES-256-GCM 主密钥；未设置时生成 `provider.secret` |
 
 管理员初始化变量只在数据库没有管理员时生效。后续可在“系统设置”中修改密码。未配置 SMTP 且 `NODE_ENV=production` 时，验证码接口返回 `503`，不会把验证码暴露给客户端。
 

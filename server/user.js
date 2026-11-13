@@ -152,12 +152,13 @@ export async function userRoutes(app, { tunnel }) {
       FROM usage_logs l JOIN api_keys k ON k.id = l.key_id
       WHERE k.user_id = ? AND l.created_at >= datetime('now', '-1 hour')
       ORDER BY l.id DESC LIMIT 100`).all(userId);
-    const models = db.prepare(`SELECT m.name, m.input_price, m.output_price, p.name provider_name, p.id provider_id
-      FROM models m JOIN providers p ON p.id = m.provider_id
+    const models = db.prepare(`SELECT m.name, m.input_price, m.output_price, p.name provider_name, p.id provider_id,
+      p.provider_type, p.base_url FROM models m JOIN providers p ON p.id = m.provider_id
       WHERE m.enabled = 1 AND p.enabled = 1 ORDER BY m.name`).all()
-      .filter((model) => tunnel.isOnline(model.provider_id))
-      .map(({ provider_id, ...model }) => model);
-    return { user: publicUser(request.user), usage: getUserUsage(userId), stats: { ...stats, cost: stats.cost_micros / 1e6 }, models, logs };
+      .filter((model) => model.provider_type !== 'tunnel' ? Boolean(model.base_url) : tunnel.isOnline(model.provider_id))
+      .map(({ provider_id, provider_type, base_url, ...model }) => model);
+    const plans = db.prepare('SELECT id, name, quota_5h, quota_week FROM api_keys WHERE user_id IS NULL AND enabled = 1 AND allow_user_apply = 1 ORDER BY id DESC').all();
+    return { user: publicUser(request.user), usage: getUserUsage(userId), stats: { ...stats, cost: stats.cost_micros / 1e6 }, models, logs, plans };
   });
 
   app.get('/api/user/keys', { preHandler: requireUser }, async (request) => ({
@@ -169,9 +170,17 @@ export async function userRoutes(app, { tunnel }) {
     const count = db.prepare('SELECT COUNT(*) count FROM api_keys WHERE user_id = ? AND enabled = 1').get(request.user.id).count;
     if (count >= 3) throw error(429, '每个用户最多保留 3 个启用的 API Key');
     const name = String(request.body?.name || '我的 API Key').trim().slice(0, 60) || '我的 API Key';
+    let plan = null;
+    if (request.body?.plan_id) {
+      plan = db.prepare('SELECT * FROM api_keys WHERE id = ? AND user_id IS NULL AND enabled = 1 AND allow_user_apply = 1').get(request.body.plan_id);
+      if (!plan) throw error(404, '该申请方案不存在或已关闭');
+    }
     const credentials = createApiKey();
-    const result = db.prepare(`INSERT INTO api_keys(user_id, name, key_hash, key_prefix, token_quota, budget_quota_micros, rpm_limit, concurrency_limit)
-      VALUES (?, ?, ?, ?, 0, 0, 60, 2)`).run(request.user.id, name, credentials.hash, credentials.prefix);
+    const result = db.prepare(`INSERT INTO api_keys
+      (user_id, name, key_hash, key_prefix, token_quota, budget_quota_micros, quota_5h, quota_week, rpm_limit, concurrency_limit)
+      VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`)
+      .run(request.user.id, name, credentials.hash, credentials.prefix,
+        plan?.quota_5h || 0, plan?.quota_week || 0, plan?.rpm_limit ?? 60, plan?.concurrency_limit ?? 2);
     return { id: Number(result.lastInsertRowid), key: credentials.token };
   });
 

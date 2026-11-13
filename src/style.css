@@ -182,7 +182,7 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
 .danger-text { color: var(--danger); }
 .model-table { border-top: 1px solid var(--line-soft); background: #fcfdfd; }
 .model-table-head { padding: 9px 16px; display: flex; align-items: center; justify-content: space-between; color: #6f8993; font-size: 10px; }
-.model-row { display: grid; grid-template-columns: minmax(150px, 1.3fr) minmax(130px, 1fr) minmax(130px, 1fr) 65px 35px; align-items: center; gap: 12px; padding: 7px 16px; }
+.model-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(140px, 1.15fr) minmax(105px, .8fr) minmax(105px, .8fr) 45px 30px; align-items: center; gap: 10px; padding: 7px 16px; }
 .model-labels { color: #93a5ac; font-size: 8px; padding-top: 0; }
 .model-row input { height: 31px; padding: 5px 8px; font-size: 10px; background: #fff; }
 .switch { width: 30px; min-height: 17px; height: 17px; border-radius: 20px; padding: 2px; background: #cbd9de; border: 0; }
@@ -402,3 +402,16 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
   .user-search { width: 100%; }
   .endpoint-grid > div { grid-template-columns: 1fr; }
 }
+
+.form-grid.three { grid-template-columns: repeat(3, 1fr); }
+.model-form-row.extended { grid-template-columns: 1fr 1.2fr .7fr .7fr 32px; }
+.login-methods { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; margin-bottom: 20px; background: #edf4f6; border-radius: 8px; }
+.login-methods button { border: 0; min-height: 32px; background: transparent; color: var(--muted); font-size: 11px; }
+.login-methods button.active { color: var(--accent); background: #fff; box-shadow: 0 1px 5px #17394512; }
+.ssh-key-list { display: grid; gap: 8px; }
+.ssh-key-list > div { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.ssh-key-list strong, .ssh-key-list small { display: block; font-size: 11px; }
+.ssh-key-list code { display: block; color: var(--muted); font-size: 9px; margin: 4px 0; word-break: break-all; }
+.ssh-key-list small { color: #8ca0a8; font-size: 9px; }
+@media (max-width: 900px) { .form-grid.three { grid-template-columns: 1fr; } .model-form-row.extended { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 800px) { .model-row { grid-template-columns: 130px 150px 105px 105px 45px 30px; min-width: 700px; } }

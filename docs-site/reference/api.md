@@ -100,6 +100,18 @@ Content-Type: application/json
 
 成功返回管理员并写入 `umeko_session` Cookie。Cookie 为 HttpOnly、SameSite=Strict，有效期 7 天；`COOKIE_SECURE=true` 时仅通过 HTTPS 发送。每个 IP 在 10 分钟内最多失败尝试 10 次。
 
+### POST /api/admin/ssh/challenge
+
+```json
+{ "publicKey": "ssh-ed25519 AAAA..." }
+```
+
+已授权公钥可获取 5 分钟随机挑战。使用 `ssh-keygen -Y sign -f ~/.ssh/id_ed25519 -n umeko-admin challenge-file` 签名后，将挑战 ID、公钥和 `.sig` 文件的 Base64 提交到 `/api/admin/ssh/login`。成功后写入同一管理员 Cookie。
+
+### GET /api/admin/ssh-keys · POST /api/admin/ssh-keys · DELETE /api/admin/ssh-keys/:id
+
+仅管理员会话可用，用于列出、授权和移除 OpenSSH 公钥。可直接复用云电脑公钥，私钥和签名私钥不会上传。
+
 ### POST /api/admin/logout
 
 删除当前会话并清除 Cookie。
@@ -160,9 +172,30 @@ Content-Type: application/json
 
 完整 token 只在此次响应出现。
 
+云端直连示例：
+
+```json
+{
+  "name": "OpenAI 主账号",
+  "provider_type": "openai",
+  "base_url": "https://api.openai.com",
+  "api_key": "sk-...",
+  "client_mode": "regex",
+  "client_pattern": "^Umeko/0\\.7\\.2$",
+  "client_error_field": "vendor_message",
+  "client_error_code": "upgrade_client",
+  "client_error_message": "请升级 Umeko 客户端",
+  "models": [
+    { "name": "fast", "upstream_name": "gpt-4.1-mini", "input_price": 1, "output_price": 2 }
+  ]
+}
+```
+
+`provider_type` 支持 `tunnel`、`openai`、`anthropic`。`upstream_name` 是发送给上游的真实模型，`name` 是对外别名。客户端校验可使用 `regex` 或带 `*` 的 `template`。
+
 ### PATCH /api/admin/providers/:id
 
-可更新 `name`、`description`、`max_concurrency`、`enabled`。停用会关闭当前隧道。
+可更新连接信息、上游 API Key、`max_concurrency`、`enabled` 和客户端校验配置。留空 `api_key` 会保留现有密钥。停用会关闭当前隧道。
 
 ### POST /api/admin/providers/:id/rotate
 
@@ -197,13 +230,16 @@ Content-Type: application/json
   "name": "Alice 的应用",
   "token_quota": 1000000,
   "budget_quota": 10,
+  "quota_5h": 2000000,
+  "quota_week": 20000000,
+  "allow_user_apply": true,
   "rpm_limit": 60,
   "concurrency_limit": 2,
   "expires_at": "2027-01-01T00:00"
 }
 ```
 
-额度为 `0` 表示不限制，`expires_at` 可省略或为 `null`。成功返回：
+`quota_5h` 和 `quota_week` 按当前 Key 的滚动窗口日志限制。`allow_user_apply=true` 时，注册用户可按该策略申请自己的新 Key，不会获得原始 Key。额度为 `0` 表示不限制，`expires_at` 可省略或为 `null`。成功返回：
 
 ```json
 { "id": 1, "key": "umo-sk-..." }
@@ -215,7 +251,7 @@ Content-Type: application/json
 
 - `enabled`：启用或停发；
 - `expires_at`：修改或清空过期时间；
-- `reset_usage: true`：累计 Token 和费用清零。
+- `reset_usage: true`：累计 Token 和费用清零，并重置五小时/周起算点，历史日志保留。
 
 ## 设置与密码
 

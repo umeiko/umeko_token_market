@@ -10,8 +10,8 @@ import EmptyState from './components/EmptyState.vue';
 const ready = ref(false), user = ref(null), tab = ref('overview'), nav = ref(false);
 const email = ref(''), code = ref(''), website = ref(''), step = ref(1), busy = ref(false), error = ref(''), cooldown = ref(0);
 const config = ref({ turnstile_site_key: '', development_email: false });
-const overview = ref({ usage: { five_hours: {}, week: {} }, stats: {}, models: [], logs: [] });
-const keys = ref([]), keyModal = ref(false), keyName = ref('我的 API Key'), newKey = ref('');
+const overview = ref({ usage: { five_hours: {}, week: {} }, stats: {}, models: [], logs: [], plans: [] });
+const keys = ref([]), keyModal = ref(false), keyName = ref('我的 API Key'), newKey = ref(''), selectedPlan = ref('');
 let cooldownTimer, turnstileWidget;
 const apiBase = `${location.origin}${(import.meta.env.VITE_API_BASE || import.meta.env.BASE_URL).replace(/\/$/, '')}`;
 const curlExample = computed(() => `curl ${apiBase}/v1/chat/completions \\\n  -H 'Authorization: Bearer umo-sk-...' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"model":"${overview.value.models[0]?.name || 'your-model'}","messages":[{"role":"user","content":"你好"}]}'`);
@@ -75,7 +75,7 @@ async function logout() { await api('POST', '/api/user/logout').catch(() => {});
 function select(id) { tab.value = id; nav.value = false; if (id !== 'guide') loadData().catch(() => {}); }
 async function createKey() {
   busy.value = true;
-  const result = await run(() => api('POST', '/api/user/keys', { name: keyName.value }));
+  const result = await run(() => api('POST', '/api/user/keys', { name: keyName.value, plan_id: selectedPlan.value || undefined }));
   busy.value = false;
   if (result) { keyModal.value = false; newKey.value = result.key; await loadData(); }
 }
@@ -134,7 +134,7 @@ async function copy(value) { await copyText(value); notify('已复制到剪贴�
       <section v-if="tab === 'logs'" class="panel"><header class="panel-header"><div><h2>最近一小时调用 <span class="count">{{ overview.logs.length }}</span></h2><p>最多展示 100 条，不记录提示词和输出正文</p></div></header><EmptyState v-if="!overview.logs.length" icon="activity" title="最近一小时没有调用" text="使用你的 API Key 发起请求后，记录会显示在这里。" /><div v-else class="table-wrap"><table><thead><tr><th>时间</th><th>模型</th><th>Key</th><th>输入 / 输出 Token</th><th>延迟</th><th>状态</th></tr></thead><tbody><tr v-for="log in overview.logs" :key="log.id"><td>{{ formatDate(log.created_at) }}</td><td><code class="model-name">{{ log.model }}</code></td><td><code>{{ log.key_prefix }}</code></td><td>{{ formatNumber(log.prompt_tokens) }} / {{ formatNumber(log.completion_tokens) }}</td><td>{{ log.latency_ms }} ms</td><td><span class="badge" :class="log.status < 400 ? 'success' : 'danger'">{{ log.status }}</span></td></tr></tbody></table></div></section>
     </main>
   </div>
-  <UiModal v-if="keyModal" title="申请 API Key" subtitle="新 Key 使用账户共享的五小时和周额度。" @close="keyModal = false"><form id="portal-key-form" class="stack" @submit.prevent="createKey"><div class="field"><label>Key 名称</label><input v-model="keyName" maxlength="60" placeholder="例如：我的本地 Agent" required /></div></form><template #footer><button @click="keyModal = false">取消</button><button class="primary" form="portal-key-form" :disabled="busy">生成 Key</button></template></UiModal>
+  <UiModal v-if="keyModal" title="申请 API Key" subtitle="新 Key 使用账户共享额度，也可选择管理员开放的申请方案。" @close="keyModal = false"><form id="portal-key-form" class="stack" @submit.prevent="createKey"><div class="field"><label>Key 名称</label><input v-model="keyName" maxlength="60" placeholder="例如：我的本地 Agent" required /></div><div v-if="overview.plans.length" class="field"><label>额度方案</label><select v-model="selectedPlan"><option value="">账户默认额度</option><option v-for="plan in overview.plans" :key="plan.id" :value="plan.id">{{ plan.name }} · 5h {{ formatNumber(plan.quota_5h) }} / 周 {{ formatNumber(plan.quota_week) }}</option></select><span class="help-text">申请后会生成你自己的新 Key，不会共享管理员的原始 Key。</span></div></form><template #footer><button @click="keyModal = false">取消</button><button class="primary" form="portal-key-form" :disabled="busy">生成 Key</button></template></UiModal>
   <SecretModal v-if="newKey" title="你的 API Key 已生成" :secret="newKey" description="完整 Key 只显示一次。请将它配置在你的应用或本地 Agent 中。" @close="newKey = ''" />
   <footer class="icp-footer"><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer nofollow">黔ICP备2026019339号</a></footer>
   <div class="toast-stack" aria-live="polite"><div v-for="toast in toasts" :key="toast.id" class="toast" :class="{ bad: toast.bad }"><UiIcon :name="toast.bad ? 'info' : 'check'" :size="17" />{{ toast.message }}</div></div>
