@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f3f8fa">
+  <meta name="description" content="Umeko Token 模型 API 中转站导航：用户中心、管理员、OpenAI、Anthropic 与开发文档。">
+  <title>Umeko Token · 模型服务导航</title>
+  <style>
+    :root{font-family:Inter,"Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;color:#183b47;background:#f3f8fa;--accent:#087f95;--muted:#698590;--line:#d9e7ec}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0,#fff 0,#f3f8fa 65%)}a{color:inherit;text-decoration:none}button{font:inherit}.page{max-width:1080px;margin:auto;padding:42px 24px 22px}.brand{display:flex;align-items:center;gap:12px;font-weight:650;letter-spacing:.3px}.mark{width:42px;height:42px;border-radius:12px;background:var(--accent);color:white;display:grid;place-items:center;font-size:22px;box-shadow:0 7px 20px #087f9525}.brand small{display:block;color:#7c96a0;font-size:9px;letter-spacing:2px;margin-top:3px}.hero{text-align:center;padding:56px 0 34px}.eyebrow{color:var(--accent);font-size:10px;font-weight:600;letter-spacing:2.5px}.hero h1{font-size:36px;letter-spacing:-1.2px;margin:12px 0}.hero p{color:var(--muted);font-size:14px;line-height:1.8;margin:0}.entry-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.entry{display:flex;align-items:center;gap:17px;padding:24px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 6px 24px #17394505;transition:.18s}.entry:hover{border-color:#8cc6d1;transform:translateY(-2px);box-shadow:0 10px 28px #087f9510}.entry-icon{width:44px;height:44px;flex:0 0 auto;display:grid;place-items:center;border-radius:11px;background:#e7f4f7;color:var(--accent);font-size:19px;font-weight:600}.entry-text{flex:1}.entry h2{font-size:16px;margin:0 0 6px}.entry p{font-size:11px;color:var(--muted);margin:0;line-height:1.6}.arrow{color:#7c9aa5;font-size:19px}.section-title{display:flex;align-items:center;gap:10px;margin:32px 0 14px;font-size:13px}.section-title span{color:#8aa1aa;font-size:10px;font-weight:400}.api-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.api-card{padding:19px 20px;background:#fff;border:1px solid var(--line);border-radius:12px}.api-card h3{font-size:12px;margin:0 0 10px}.api-card code{display:block;color:#176579;background:#eef6f8;border-radius:6px;padding:9px 10px;font-size:11px;overflow-wrap:anywhere}.api-card p{color:var(--muted);font-size:10px;margin:9px 0 0;line-height:1.6}.local{margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:15px}.local code{font-size:11px;background:#eef4f6;padding:7px 9px;border-radius:5px}.local span{color:var(--muted);font-size:10px}.footer{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;margin-top:36px;color:#8b9da5;font-size:10px}.footer a:hover{color:var(--accent);text-decoration:underline;text-underline-offset:3px}.dot{width:4px;height:4px;background:#a4b6bd;border-radius:50%}@media(max-width:680px){.page{padding:25px 16px 18px}.hero{padding:38px 0 26px}.hero h1{font-size:29px}.entry-grid,.api-grid{grid-template-columns:1fr}.entry{padding:19px}.local{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+<main class="page">
+  <div class="brand"><span class="mark">U</span><div>UMEKO TOKEN<small>MODEL API NAVIGATION</small></div></div>
+  <header class="hero"><span class="eyebrow">ONE ADDRESS, EVERYTHING</span><h1>模型服务，从这里出发。</h1><p>用户、管理员、API 和文档的统一导航。<br>收藏这一个地址就够了。</p></header>
+  <section class="entry-grid" aria-label="主要入口">
+    <a class="entry" href="https://umekolab.cn/api_login/"><span class="entry-icon">↗</span><div class="entry-text"><h2>用户中心</h2><p>邮箱验证码登录、申请 API Key、查看模型与用量</p></div><span class="arrow">›</span></a>
+    <a class="entry" href="https://umekolab.cn/manage_login/"><span class="entry-icon">⌘</span><div class="entry-text"><h2>管理员控制台</h2><p>供应商、用户、计费、额度和并发管理</p></div><span class="arrow">›</span></a>
+    <a class="entry" href="https://umeiko.github.io/umeko_token_market/"><span class="entry-icon">?</span><div class="entry-text"><h2>使用文档</h2><p>快速开始、部署指南、架构与 API 接口参考</p></div><span class="arrow">›</span></a>
+    <a class="entry" href="https://umekolab.cn/api/health"><span class="entry-icon">✓</span><div class="entry-text"><h2>服务健康检查</h2><p>确认中转服务是否在线</p></div><span class="arrow">›</span></a>
+  </section>
+  <h2 class="section-title">API 接入 <span>OpenAI 与 Anthropic 兼容</span></h2>
+  <section class="api-grid">
+    <article class="api-card"><h3>OpenAI 兼容 Base URL</h3><code>https://umekolab.cn/api/v1</code><p>用于 OpenAI SDK、Dify、Cherry Studio、NextChat 和本地 Agent。</p></article>
+    <article class="api-card"><h3>Anthropic Messages</h3><code>https://umekolab.cn/api/v1/messages</code><p>使用 x-api-key 与 anthropic-version，支持普通及流式调用。</p></article>
+  </section>
+  <section class="api-card local"><div><h3>本机连接器控制台</h3><span>仅在运行 utoken 的电脑上访问，不是公网地址。</span></div><code>http://127.0.0.1:8787</code></section>
+  <footer class="footer"><a href="https://umekolab.cn/">Umeko 主站</a><i class="dot"></i><a href="https://github.com/umeiko/umeko_token_market">GitHub</a><i class="dot"></i><a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer nofollow">黔ICP备2026019339号</a></footer>
+</main>
+</body>
+</html>
