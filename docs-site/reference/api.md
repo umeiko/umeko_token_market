@@ -253,6 +253,10 @@ Content-Type: application/json
 - `expires_at`：修改或清空过期时间；
 - `reset_usage: true`：累计 Token 和费用清零，并重置五小时/周起算点，历史日志保留。
 
+### POST /api/admin/keys/:id/rotate
+
+替换指定 Key 的凭据，保留名称、额度和限流配置。旧 Key 立即失效，新完整 Key 仅返回一次，用于管理员复制 Base URL、Model ID 和接入环境变量。
+
 ## 设置与密码
 
 ### GET /api/admin/settings

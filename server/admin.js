@@ -326,6 +326,14 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     return { ok: true };
   });
 
+  app.post('/api/admin/keys/:id/rotate', { preHandler: requireAdmin }, async (request) => {
+    const current = db.prepare('SELECT id FROM api_keys WHERE id = ?').get(request.params.id);
+    if (!current) throw badRequest('Key 不存在');
+    const credentials = createApiKey();
+    db.prepare('UPDATE api_keys SET key_hash = ?, key_prefix = ? WHERE id = ?').run(credentials.hash, credentials.prefix, current.id);
+    return { key: credentials.token, prefix: credentials.prefix };
+  });
+
   app.get('/api/admin/usage', { preHandler: requireAdmin }, async (request) => {
     const page = Math.max(1, number(request.query.page, 1));
     const limit = 30;
