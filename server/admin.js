@@ -1,12 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { changePassword, db, getSettings, getUserUsage, setSetting, verifyAdmin } from './db.js';
-import { createAgentToken, createApiKey, publicProvider, sessionExpired, touchSession, verifySameOrigin } from './security.js';
+import { consumeRateLimit, createAgentToken, createApiKey, publicProvider, sessionExpired, touchSession, verifySameOrigin } from './security.js';
 import { encryptProviderKey } from './providerCrypto.js';
 import { parsePublicKey, verifySshSignature } from './sshAuth.js';
+import { createEd25519Challenge, verifyEd25519Signature } from './ed25519Auth.js';
 
 const sessions = new Map();
 const loginAttempts = new Map();
 const sshChallenges = new Map();
+const ed25519Challenges = new Map();
 const SESSION_AGE = 7 * 24 * 60 * 60 * 1000;
 const badRequest = (message) => Object.assign(new Error(message), { statusCode: 400 });
 const number = (value, fallback = 0) => value === '' || value === undefined ? fallback : Number(value);
@@ -64,6 +66,37 @@ export async function adminRoutes(app, { tunnel, gateway }) {
       path: '/', httpOnly: true, sameSite: 'strict', secure: process.env.COOKIE_SECURE === 'true', maxAge: SESSION_AGE / 1000,
     });
     return { user };
+  });
+
+  app.post('/api/admin/ed25519/challenge', async (request, reply) => {
+    if (!consumeRateLimit(loginAttempts, `ed25519:${request.ip}`, 10, 600000)) {
+      return reply.code(429).send({ error: '挑战请求过于频繁，请稍后再试' });
+    }
+    const challenge = createEd25519Challenge();
+    ed25519Challenges.set(challenge.id, { ...challenge, expires: Date.now() + 300000 });
+    return { ...challenge, algorithm: 'Ed25519' };
+  });
+
+  app.post('/api/admin/ed25519/login', async (request, reply) => {
+    const { id, challenge: value, signature } = request.body || {};
+    const challenge = id && ed25519Challenges.get(id);
+    if (!challenge || challenge.expires < Date.now() || challenge.challenge !== value) {
+      return reply.code(401).send({ error: '密钥挑战已失效，请重新获取' });
+    }
+    ed25519Challenges.delete(id);
+    try {
+      if (!verifyEd25519Signature({ challenge: challenge.challenge, signature })) {
+        return reply.code(401).send({ error: '密钥签名验证失败' });
+      }
+    } catch (cause) { return reply.code(401).send({ error: cause.message }); }
+    const user = db.prepare('SELECT id, username FROM admin_users WHERE id = ?').get(Number(process.env.ADMIN_ED25519_USER_ID || 1));
+    if (!user) return reply.code(401).send({ error: '管理员账户不存在' });
+    const token = randomBytes(32).toString('base64url');
+    sessions.set(token, { ...user, expires: Date.now() + SESSION_AGE, lastSeen: Date.now() });
+    reply.setCookie('umeko_session', token, {
+      path: '/', httpOnly: true, sameSite: 'strict', secure: process.env.COOKIE_SECURE === 'true', maxAge: SESSION_AGE / 1000,
+    });
+    return { user, method: 'ed25519' };
   });
 
   app.post('/api/admin/ssh/challenge', async (request, reply) => {
