@@ -294,10 +294,18 @@ Content-Type: application/json
 ### POST /api/user/login
 
 ```json
-{ "email": "user@example.com", "code": "123456" }
+{ "email": "user@example.com", "password": "your-password" }
 ```
 
-验证码 10 分钟内有效，最多尝试 5 次。成功写入用户 Cookie并返回用户与额度。
+日常密码登录。密码使用 scrypt 加盐哈希验证，成功写入用户 Cookie并返回用户与额度。
+
+### POST /api/user/password
+
+```json
+{ "email": "user@example.com", "code": "123456", "password": "new-password" }
+```
+
+用于注册、忘记密码和修改密码。验证码 10 分钟内有效，最多尝试 5 次；新密码要求 10 到 128 个字符。成功后设置或更新密码并创建用户会话。
 
 ### POST /api/user/logout · GET /api/user/me
 

@@ -42,6 +42,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL UNIQUE,
+    password_hash TEXT,
+    salt TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     token_quota_5h INTEGER NOT NULL DEFAULT 2000000,
     token_quota_week INTEGER NOT NULL DEFAULT 20000000,
@@ -113,6 +115,8 @@ function addColumn(table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
+addColumn('users', 'password_hash', 'TEXT');
+addColumn('users', 'salt', 'TEXT');
 addColumn('api_keys', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
 addColumn('api_keys', 'quota_5h', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('api_keys', 'quota_week', 'INTEGER NOT NULL DEFAULT 0');

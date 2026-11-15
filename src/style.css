@@ -285,6 +285,22 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
 .login-decoration span:nth-child(2) { width: 750px; height: 750px; left: calc(50% - 375px); top: calc(50% - 375px); }
 .login-decoration span:nth-child(3) { width: 950px; height: 950px; left: calc(50% - 475px); top: calc(50% - 475px); }
 
+.login-divider { display: flex; align-items: center; gap: 10px; margin: 22px 0 14px; color: #8a9da5; font-size: 10px; }
+.login-divider:before, .login-divider:after { content: ''; height: 1px; flex: 1; background: var(--line-soft); }
+.identity-dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; min-height: 138px; padding: 18px; border: 1px dashed #9fc8d3; border-radius: 10px; background: #f4fafb; color: var(--accent); text-align: center; cursor: pointer; transition: border .15s, background .15s, transform .15s; }
+.identity-dropzone:hover, .identity-dropzone:focus-visible, .identity-dropzone.dragging { border-color: var(--accent); background: #e6f4f7; outline: none; }
+.identity-dropzone.dragging { transform: scale(1.01); }
+.identity-dropzone.busy { cursor: wait; opacity: .7; }
+.identity-dropzone strong { color: #275b69; font-size: 13px; font-weight: 600; }
+.identity-dropzone span { color: #64848f; font-size: 11px; }
+.identity-dropzone small { color: #8a9da5; font-size: 8px; line-height: 1.6; }
+.identity-file { text-align: center; margin: 8px 0 0; }
+.ssh-alternative { margin-top: 14px; color: #7b929b; font-size: 10px; }
+.ssh-alternative summary { cursor: pointer; text-align: center; padding: 5px; }
+.ssh-alternative summary:hover { color: var(--accent); }
+.ssh-alternative .stack { margin-top: 18px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
 @media (min-width: 1500px) {
   .sidebar { width: 240px; }
   .admin-content { margin-left: 240px; padding-left: 40px; padding-right: 40px; }

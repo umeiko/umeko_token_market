@@ -1,5 +1,5 @@
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto';
-import { db, getUserUsage } from './db.js';
+import { db, getUserUsage, transaction } from './db.js';
 import { consumeRateLimit, createApiKey, sessionExpired, touchSession, verifySameOrigin } from './security.js';
 import { isDevelopmentEmail, sendVerificationEmail } from './mailer.js';
 
@@ -100,28 +100,7 @@ export async function userRoutes(app, { tunnel }) {
     return { ok: true, message: '如果邮箱可用，验证码已发送' };
   });
 
-  app.post('/api/user/login', async (request, reply) => {
-    if (!consumeRateLimit(loginAttempts, request.ip, 20, 600000)) throw error(429, '登录尝试过于频繁，请十分钟后再试');
-    const body = request.body || {};
-    const email = normalizeEmail(body.email);
-    const code = String(body.code || '').trim();
-    if (!validEmail(email) || !/^\d{6}$/.test(code)) throw error(400, '邮箱或验证码格式不正确');
-    const challenge = db.prepare('SELECT * FROM email_challenges WHERE email = ? AND consumed = 0 ORDER BY id DESC LIMIT 1').get(email);
-    const invalid = () => error(401, '验证码错误、已过期或尝试次数过多');
-    if (!challenge || challenge.attempts >= 5 || new Date(`${challenge.expires_at.replace(' ', 'T')}Z`) <= new Date()) throw invalid();
-    const candidate = scryptSync(code, challenge.salt, 64);
-    if (!timingSafeEqual(candidate, Buffer.from(challenge.code_hash, 'hex'))) {
-      db.prepare('UPDATE email_challenges SET attempts = attempts + 1, consumed = CASE WHEN attempts >= 4 THEN 1 ELSE consumed END WHERE id = ?').run(challenge.id);
-      throw invalid();
-    }
-    db.prepare('UPDATE email_challenges SET consumed = 1 WHERE id = ?').run(challenge.id);
-    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-    if (!user) {
-      const registrations = db.prepare("SELECT COUNT(*) count FROM users WHERE created_ip = ? AND created_at >= datetime('now', '-1 day')").get(request.ip).count;
-      if (registrations >= 5) throw error(429, '当前网络注册次数过多，请明天再试');
-      const result = db.prepare('INSERT INTO users(email, created_ip, last_login_at) VALUES (?, ?, datetime(\'now\'))').run(email, request.ip);
-      user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
-    }
+  function createUserSession(user, reply) {
     if (!user.enabled) throw error(403, '该账户已被停用，请联系管理员');
     db.prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?").run(user.id);
     const token = randomBytes(32).toString('base64url');
@@ -130,6 +109,53 @@ export async function userRoutes(app, { tunnel }) {
       path: '/', httpOnly: true, sameSite: 'strict', secure: process.env.COOKIE_SECURE === 'true', maxAge: SESSION_AGE / 1000,
     });
     return { user: publicUser(user), usage: getUserUsage(user.id) };
+  }
+
+  app.post('/api/user/login', async (request, reply) => {
+    if (!consumeRateLimit(loginAttempts, request.ip, 20, 600000)) throw error(429, '登录尝试过于频繁，请十分钟后再试');
+    const body = request.body || {};
+    const email = normalizeEmail(body.email);
+    const password = String(body.password || '');
+    if (!validEmail(email) || !password) throw error(400, '请输入邮箱账号和密码');
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    if (!user || !user.password_hash) throw error(401, '账户尚未设置密码，请通过邮箱验证码设置');
+    const candidate = scryptSync(password, user.salt, 64);
+    if (!timingSafeEqual(candidate, Buffer.from(user.password_hash, 'hex'))) throw error(401, '邮箱账号或密码错误');
+    return createUserSession(user, reply);
+  });
+
+  app.post('/api/user/password', async (request, reply) => {
+    if (!consumeRateLimit(loginAttempts, `password:${request.ip}`, 10, 600000)) throw error(429, '验证尝试过于频繁，请稍后再试');
+    const body = request.body || {};
+    const email = normalizeEmail(body.email);
+    const code = String(body.code || '').trim();
+    const password = String(body.password || '');
+    if (!validEmail(email) || !/^\d{6}$/.test(code)) throw error(400, '邮箱或验证码格式不正确');
+    if (password.length < 10 || password.length > 128) throw error(400, '密码需要 10 到 128 个字符');
+    const user = transaction(() => {
+      const challenge = db.prepare('SELECT * FROM email_challenges WHERE email = ? AND consumed = 0 ORDER BY id DESC LIMIT 1').get(email);
+      const invalid = () => error(401, '验证码错误、已过期或尝试次数过多');
+      if (!challenge || challenge.attempts >= 5 || new Date(`${challenge.expires_at.replace(' ', 'T')}Z`) <= new Date()) throw invalid();
+      const candidate = scryptSync(code, challenge.salt, 64);
+      if (!timingSafeEqual(candidate, Buffer.from(challenge.code_hash, 'hex'))) {
+        db.prepare('UPDATE email_challenges SET attempts = attempts + 1, consumed = CASE WHEN attempts >= 4 THEN 1 ELSE consumed END WHERE id = ?').run(challenge.id);
+        throw invalid();
+      }
+      const salt = randomBytes(16).toString('hex');
+      const passwordHash = scryptSync(password, salt, 64).toString('hex');
+      let current = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+      if (!current) {
+        const registrations = db.prepare("SELECT COUNT(*) count FROM users WHERE created_ip = ? AND created_at >= datetime('now', '-1 day')").get(request.ip).count;
+        if (registrations >= 5) throw error(429, '当前网络注册次数过多，请明天再试');
+        const result = db.prepare('INSERT INTO users(email, password_hash, salt, created_ip, last_login_at) VALUES (?, ?, ?, ?, datetime(\'now\'))').run(email, passwordHash, salt, request.ip);
+        current = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+      } else {
+        db.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?').run(passwordHash, salt, current.id);
+      }
+      db.prepare('UPDATE email_challenges SET consumed = 1 WHERE id = ?').run(challenge.id);
+      return current;
+    });
+    return createUserSession(user, reply);
   });
 
   app.post('/api/user/logout', async (request, reply) => {
