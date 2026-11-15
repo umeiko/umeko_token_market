@@ -36,8 +36,8 @@ await app.register(async (relay) => {
   relay.get('/agent/connect', { websocket: true }, (socket) => tunnel.connect(socket));
   relay.get('/v1/models', async (request, reply) => {
     try {
-      gateway.authenticate(request.headers.authorization);
-      return { object: 'list', data: gateway.models() };
+      const key = gateway.authenticate(request.headers.authorization);
+      return { object: 'list', data: gateway.models(key) };
     } catch (error) { return sendGatewayError(reply, error); }
   });
   relay.post('/v1/messages', async (request, reply) => {

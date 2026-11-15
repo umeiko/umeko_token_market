@@ -5,6 +5,12 @@ import { bearerToken, hashToken } from './security.js';
 
 const estimateTokens = (text) => Math.max(1, Math.ceil(String(text).length / 4));
 const asOpenAIError = (message, type = 'api_error') => ({ error: { message, type } });
+const allowedModels = (key) => {
+  try {
+    const models = JSON.parse(key.allowed_models || '[]');
+    return Array.isArray(models) ? models : [];
+  } catch { return []; }
+};
 
 export class Gateway {
   constructor(tunnel, settings) {
@@ -76,15 +82,20 @@ export class Gateway {
     };
   }
 
-  models() {
+  models(key) {
+    const allowed = allowedModels(key);
     return db.prepare(`SELECT m.id, m.name, m.provider_id, p.provider_type, p.base_url FROM models m
       JOIN providers p ON p.id = m.provider_id
       WHERE m.enabled = 1 AND p.enabled = 1 ORDER BY m.name`).all()
-      .filter((model) => this.providerOnline(model))
+      .filter((model) => this.providerOnline(model) && (!allowed.length || allowed.includes(model.name)))
       .map((model) => ({ id: model.name, object: 'model', created: 0, owned_by: 'umeko-relay' }));
   }
 
-  selectProvider(modelName) {
+  selectProvider(modelName, key) {
+    const allowed = allowedModels(key);
+    if (allowed.length && !allowed.includes(modelName)) {
+      throw Object.assign(new Error(`此 API Key 无权使用模型 ${modelName}`), { statusCode: 403 });
+    }
     const candidates = db.prepare(`SELECT m.*, p.name AS provider_name, p.max_concurrency,
       p.provider_type, p.base_url, p.api_key_ciphertext, p.api_key_iv, p.api_key_tag,
       p.client_mode, p.client_pattern, p.client_error_field, p.client_error_message, p.client_error_code,
@@ -142,7 +153,7 @@ export class Gateway {
       : (request.body && typeof request.body === 'object' ? request.body : {});
     const modelName = source.model || '';
     if (!modelName) throw Object.assign(new Error('请求中缺少 model'), { statusCode: 400 });
-    const model = this.selectProvider(modelName);
+    const model = this.selectProvider(modelName, key);
     this.validateClient(model, String(request.headers['user-agent'] || ''));
     const release = this.reserve(key);
     const releaseProvider = this.reserveProvider(model.provider_id);

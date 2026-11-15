@@ -13,10 +13,17 @@ const SESSION_AGE = 7 * 24 * 60 * 60 * 1000;
 const badRequest = (message) => Object.assign(new Error(message), { statusCode: 400 });
 const number = (value, fallback = 0) => value === '' || value === undefined ? fallback : Number(value);
 const bool = (value) => value ? 1 : 0;
+const allowedModels = (value) => {
+  try {
+    const models = Array.isArray(value) ? value : JSON.parse(value || '[]');
+    return Array.isArray(models) ? models.filter((model) => typeof model === 'string').slice(0, 100) : [];
+  } catch { return []; }
+};
 
 function keyView(row, gateway) {
   return {
     ...row,
+    allowed_models: allowedModels(row.allowed_models),
     key_hash: undefined,
     enabled: Boolean(row.enabled),
     allow_user_apply: Boolean(row.allow_user_apply),
@@ -296,10 +303,10 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     if (!body.name?.trim()) throw badRequest('请填写 Key 名称');
     const credentials = createApiKey();
     const result = db.prepare(`INSERT INTO api_keys
-      (name, key_hash, key_prefix, token_quota, budget_quota_micros, quota_5h, quota_week,
+      (name, key_hash, key_prefix, allowed_models, token_quota, budget_quota_micros, quota_5h, quota_week,
        allow_user_apply, rpm_limit, concurrency_limit, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(body.name.trim(), credentials.hash, credentials.prefix, Math.max(0, number(body.token_quota)),
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(body.name.trim(), credentials.hash, credentials.prefix, JSON.stringify(allowedModels(body.allowed_models)), Math.max(0, number(body.token_quota)),
         Math.round(Math.max(0, number(body.budget_quota)) * 1e6),
         Math.max(0, Math.floor(number(body.quota_5h))), Math.max(0, Math.floor(number(body.quota_week))),
         bool(body.allow_user_apply), Math.max(0, number(body.rpm_limit, 60)),
@@ -314,9 +321,9 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     if (body.reset_usage) {
       db.prepare("UPDATE api_keys SET used_tokens = 0, used_cost_micros = 0, quota_reset_5h_at = datetime('now'), quota_reset_week_at = datetime('now') WHERE id = ?").run(current.id);
     }
-    db.prepare(`UPDATE api_keys SET name = ?, token_quota = ?, budget_quota_micros = ?, quota_5h = ?, quota_week = ?,
+    db.prepare(`UPDATE api_keys SET name = ?, allowed_models = ?, token_quota = ?, budget_quota_micros = ?, quota_5h = ?, quota_week = ?,
       allow_user_apply = ?, rpm_limit = ?, concurrency_limit = ?, enabled = ?, expires_at = ? WHERE id = ?`).run(
-      body.name?.trim() || current.name, Math.max(0, number(body.token_quota, current.token_quota)),
+      body.name?.trim() || current.name, JSON.stringify(allowedModels(body.allowed_models === undefined ? current.allowed_models : body.allowed_models)), Math.max(0, number(body.token_quota, current.token_quota)),
       Math.round(Math.max(0, number(body.budget_quota, current.budget_quota_micros / 1e6)) * 1e6),
       Math.max(0, Math.floor(number(body.quota_5h, current.quota_5h))), Math.max(0, Math.floor(number(body.quota_week, current.quota_week))),
       body.allow_user_apply === undefined ? current.allow_user_apply : bool(body.allow_user_apply),

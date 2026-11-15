@@ -228,6 +228,7 @@ Content-Type: application/json
 ```json
 {
   "name": "Alice 的应用",
+  "allowed_models": ["qwen3-32b"],
   "token_quota": 1000000,
   "budget_quota": 10,
   "quota_5h": 2000000,

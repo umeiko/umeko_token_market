@@ -73,6 +73,7 @@ db.exec(`
     name TEXT NOT NULL,
     key_hash TEXT NOT NULL UNIQUE,
     key_prefix TEXT NOT NULL,
+    allowed_models TEXT NOT NULL DEFAULT '[]',
     token_quota INTEGER NOT NULL DEFAULT 0,
     budget_quota_micros INTEGER NOT NULL DEFAULT 0,
     rpm_limit INTEGER NOT NULL DEFAULT 60,
@@ -118,6 +119,7 @@ function addColumn(table, column, definition) {
 addColumn('users', 'password_hash', 'TEXT');
 addColumn('users', 'salt', 'TEXT');
 addColumn('api_keys', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
+addColumn('api_keys', 'allowed_models', "TEXT NOT NULL DEFAULT '[]'");
 addColumn('api_keys', 'quota_5h', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('api_keys', 'quota_week', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('api_keys', 'allow_user_apply', 'INTEGER NOT NULL DEFAULT 0');
