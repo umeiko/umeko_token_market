@@ -1,12 +1,12 @@
 <script setup>
 const props = defineProps({ name: { type: String, required: true }, size: { type: Number, default: 19 } });
 const paths = {
-  dashboard: ['M3 3h7v7H3z', 'M14 3h7v7h-7z', 'M3 14h7v7H3z', 'M14 14h7v7h-7z'],
+  dashboard: ['M3 3h7v9H3z', 'M14 3h7v5h-7z', 'M14 12h7v9h-7z', 'M3 16h7v5H3z'],
   server: ['M4 4h16v6H4z', 'M4 14h16v6H4z', 'M8 7h.01', 'M8 17h.01', 'M12 7h5', 'M12 17h5'],
-  key: ['M15 7a5 5 0 110 10 5 5 0 010-10z', 'M11 11L3 19', 'M6 16l2 2', 'M8 14l2 2'],
+  key: ['M21 2l-2 2', 'M11.39 11.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78z', 'M11.39 11.61L15.5 7.5', 'M14 10l4 4', 'M17 6l3 3'],
   users: ['M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2', 'M9 11a4 4 0 100-8 4 4 0 000 8z', 'M22 21v-2a4 4 0 00-3-3.87', 'M16 3.13a4 4 0 010 7.75'],
-  chart: ['M4 19V5', 'M4 19h17', 'M7 15l4-5 4 2 5-7'],
-  logs: ['M6 3h12v18H6z', 'M9 8h6', 'M9 12h6', 'M9 16h4'],
+  chart: ['M3 3v18h18', 'M7 16l4-5 4 2 5-7'],
+  logs: ['M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z', 'M14 2v6h6', 'M9 13h6', 'M9 17h6', 'M9 9h2'],
   settings: ['M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z', 'M19.4 15a1.7 1.7 0 00.34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0015 19.4a1.7 1.7 0 00-1 .6 1.7 1.7 0 00-.4 1.1V21h-4v-.09A1.7 1.7 0 008.6 19.4a1.7 1.7 0 00-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 004.6 15a1.7 1.7 0 00-1.6-1H3v-4h.09A1.7 1.7 0 004.6 9a1.7 1.7 0 00-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 009 4.6a1.7 1.7 0 001-1.6V3h4v.09A1.7 1.7 0 0015 4.6a1.7 1.7 0 001.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0019.4 9a1.7 1.7 0 001.6 1h.09v4H21a1.7 1.7 0 00-1.6 1z'],
   plus: ['M12 5v14', 'M5 12h14'],
   menu: ['M4 6h16', 'M4 12h16', 'M4 18h16'],
@@ -26,7 +26,7 @@ const paths = {
 };
 </script>
 <template>
-  <svg :width="size" :height="size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg :width="size" :height="size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path v-for="path in paths[props.name] || paths.info" :key="path" :d="path" />
   </svg>
 </template>
