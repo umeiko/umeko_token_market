@@ -365,6 +365,7 @@ export async function adminRoutes(app, { tunnel, gateway }) {
   });
 
   app.get('/api/admin/usage', { preHandler: requireAdmin }, async (request) => {
+    gateway.cleanupBlockedRequests();
     const page = Math.max(1, number(request.query.page, 1));
     const limit = 30;
     const conditions = [];
@@ -373,11 +374,13 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     if (request.query.provider_id) { conditions.push('l.provider_id = ?'); params.push(Number(request.query.provider_id)); }
     if (request.query.status === 'success') conditions.push('l.status BETWEEN 200 AND 399');
     if (request.query.status === 'error') conditions.push('l.status NOT BETWEEN 200 AND 399');
+    if (request.query.category) { conditions.push('l.category = ?'); params.push(String(request.query.category)); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const total = db.prepare(`SELECT COUNT(*) count FROM usage_logs l ${where}`).get(...params).count;
     const logs = db.prepare(`SELECT l.*, k.name key_name, k.key_prefix, p.name provider_name FROM usage_logs l
       LEFT JOIN api_keys k ON k.id = l.key_id LEFT JOIN providers p ON p.id = l.provider_id
-      ${where} ORDER BY l.id DESC LIMIT ? OFFSET ?`).all(...params, limit, (page - 1) * limit);
+      ${where} ORDER BY l.id DESC LIMIT ? OFFSET ?`).all(...params, limit, (page - 1) * limit)
+      .map((log) => ({ ...log, headers: JSON.parse(log.headers_json || '{}') }));
     return { logs, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
   });
 
@@ -430,9 +433,9 @@ export async function adminRoutes(app, { tunnel, gateway }) {
   app.get('/api/admin/blocked', { preHandler: requireAdmin }, async () => {
     gateway.cleanupBlockedRequests();
     return {
-      logs: db.prepare(`SELECT b.*, k.name key_name, p.name provider_name FROM blocked_requests b
+      logs: db.prepare(`SELECT b.*, k.name key_name, p.name provider_name FROM usage_logs b
         LEFT JOIN api_keys k ON k.id = b.key_id LEFT JOIN providers p ON p.id = b.provider_id
-        WHERE b.created_at >= datetime('now', '-5 hours') ORDER BY b.id DESC LIMIT 200`).all()
+        WHERE b.category = 'client_mismatch' AND b.created_at >= datetime('now', '-5 hours') ORDER BY b.id DESC LIMIT 200`).all()
         .map((log) => ({ ...log, headers: JSON.parse(log.headers_json) })),
     };
   });

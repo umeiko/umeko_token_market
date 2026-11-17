@@ -217,10 +217,19 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
 .log-filters { display: flex; gap: 7px; }
 .log-filters select { width: 130px; height: 34px; padding: 5px 9px; font-size: 10px; }
 .request-id { color: #8ba0a8; font-size: 8px; }
-.error-detail td { color: var(--danger); background: #fff7f8 !important; white-space: normal; font-size: 10px; }
-.logs-subnav { margin-bottom: 16px; }
-.blocked-table .ua-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-.header-detail { max-width: 520px; max-height: 360px; overflow: auto; padding: 12px; border-radius: 6px; background: #f4f8fa; color: #436570; font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.logs-table { min-width: 960px; }
+.request-detail-row td { padding: 0; white-space: normal; background: #f7fafb !important; }
+.request-detail { padding: 18px 20px; border-bottom: 1px solid var(--line-soft); }
+.detail-grid { display: grid; grid-template-columns: minmax(120px, .65fr) minmax(130px, .75fr) minmax(240px, 2fr); gap: 12px; }
+.detail-grid > div { min-width: 0; padding: 11px 13px; border: 1px solid var(--line-soft); border-radius: 7px; background: #fff; }
+.detail-grid span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 9px; }
+.detail-grid strong { font-size: 11px; font-weight: 600; }
+.detail-grid code { display: block; color: #436570; font-size: 10px; white-space: normal; overflow-wrap: anywhere; }
+.detail-error { margin-top: 12px; padding: 11px 13px; border-left: 3px solid #d6a451; border-radius: 4px; background: #fff9ee; color: #735a35; font-size: 11px; }
+.detail-error p { margin: 5px 0 0; line-height: 1.7; overflow-wrap: anywhere; }
+.request-detail details { margin-top: 12px; }
+.request-detail summary { color: #587681; font-size: 10px; cursor: pointer; }
+.request-detail pre { max-height: 360px; margin: 8px 0 0; overflow: auto; padding: 12px; border: 1px solid var(--line-soft); border-radius: 6px; background: #fff; color: #436570; font: 10px/1.65 monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pagination { padding: 12px 18px; border-top: 1px solid var(--line-soft); display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 10px; }
 .pagination > div { display: flex; gap: 6px; }
 

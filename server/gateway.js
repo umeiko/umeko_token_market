@@ -19,6 +19,7 @@ export class Gateway {
     this.keyActivity = new Map();
     this.providerActivity = new Map();
     this.rateWindows = new Map();
+    this.cleanupBlockedRequests();
     this.blockedCleanup = setInterval(() => this.cleanupBlockedRequests(), 60 * 60 * 1000);
     this.blockedCleanup.unref();
   }
@@ -147,22 +148,11 @@ export class Gateway {
 
   cleanupBlockedRequests() {
     db.prepare("DELETE FROM blocked_requests WHERE created_at < datetime('now', '-5 hours')").run();
-  }
-
-  recordBlockedRequest(request, key, model) {
-    this.cleanupBlockedRequests();
-    const headers = Object.fromEntries(Object.entries(request.headers).map(([name, value]) => [
-      name,
-      ['authorization', 'x-api-key', 'cookie'].includes(name.toLowerCase()) ? '[redacted]' : value,
-    ]));
-    db.prepare(`INSERT INTO blocked_requests(request_id, key_id, provider_id, model, ip, user_agent, headers_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(crypto.randomUUID(), key.id, model.provider_id, model.name, request.ip, String(request.headers['user-agent'] || ''), JSON.stringify(headers));
+    db.prepare("UPDATE usage_logs SET ip = '', headers_json = '{}' WHERE created_at < datetime('now', '-5 hours') AND (ip <> '' OR headers_json <> '{}')").run();
   }
 
   rejectClient(request, reply, key, model, anthropic) {
-    this.recordBlockedRequest(request, key, model);
-    this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: 403, latency: 0, error: '客户端 User-Agent 不匹配' });
+    this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: 200, latency: 0, error: '客户端 User-Agent 不匹配，已返回客户端提示流', request, category: 'client_mismatch' });
     const text = '请使用umeko-desktop来提问吧';
     const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '')}`;
     const created = Math.floor(Date.now() / 1000);
@@ -192,22 +182,48 @@ export class Gateway {
   async proxy(request, reply, format = 'openai') {
     const anthropic = format === 'anthropic';
     const authorization = request.headers.authorization || (request.headers['x-api-key'] ? `Bearer ${request.headers['x-api-key']}` : '');
-    const key = this.authenticate(authorization);
     const path = anthropic ? 'chat/completions' : request.params['*'];
     const source = anthropic
       ? anthropicToOpenAI(request.body)
       : (request.body && typeof request.body === 'object' ? request.body : {});
     const modelName = source.model || '';
-    if (!modelName) throw Object.assign(new Error('请求中缺少 model'), { statusCode: 400 });
-    const model = this.selectProvider(modelName, key);
+    let key;
+    try {
+      key = this.authenticate(authorization);
+    } catch (error) {
+      this.record({ requestId: crypto.randomUUID(), key: { id: null }, model: { provider_id: null, name: modelName, input_price: 0, output_price: 0 }, usage: {}, status: error.statusCode || 401, latency: 0, error: error.message, request, category: error.statusCode === 429 ? 'rate_limit' : 'auth_error' });
+      throw error;
+    }
+    if (!modelName) {
+      const error = Object.assign(new Error('请求中缺少 model'), { statusCode: 400 });
+      this.record({ requestId: crypto.randomUUID(), key, model: { provider_id: null, name: '', input_price: 0, output_price: 0 }, usage: {}, status: 400, latency: 0, error: error.message, request, category: 'request_error' });
+      throw error;
+    }
+    let model;
+    try {
+      model = this.selectProvider(modelName, key);
+    } catch (error) {
+      const category = error.statusCode === 429 ? 'rate_limit' : error.statusCode === 403 ? 'auth_error' : 'provider_offline';
+      this.record({ requestId: crypto.randomUUID(), key, model: { provider_id: null, name: modelName, input_price: 0, output_price: 0 }, usage: {}, status: error.statusCode || 503, latency: 0, error: error.message, request, category });
+      throw error;
+    }
     try {
       this.validateClient(key, String(request.headers['user-agent'] || ''));
     } catch (error) {
       if (error.customResponse) return this.rejectClient(request, reply, key, model, anthropic);
+      this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: error.statusCode || 400, latency: 0, error: error.message, request, category: 'request_error' });
       throw error;
     }
-    const release = this.reserve(key);
-    const releaseProvider = this.reserveProvider(model.provider_id);
+    let release;
+    let releaseProvider;
+    try {
+      release = this.reserve(key);
+      releaseProvider = this.reserveProvider(model.provider_id);
+    } catch (error) {
+      release?.();
+      this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: error.statusCode || 429, latency: 0, error: error.message, request, category: error.statusCode === 429 ? 'rate_limit' : 'error' });
+      throw error;
+    }
     const startedAt = Date.now();
     const body = { ...source, model: model.upstream_name || model.name };
     if (path === 'chat/completions' && body.stream && model.provider_type !== 'anthropic') {
@@ -232,13 +248,17 @@ export class Gateway {
       reply.raw.off('close', onDisconnect);
       releaseProvider();
       release();
-      this.record({ requestId: forwarded?.requestId || crypto.randomUUID(), key, model, usage: {}, status: error.statusCode || 502, latency: Date.now() - startedAt, error: error.message });
+      this.record({ requestId: forwarded?.requestId || crypto.randomUUID(), key, model, usage: {}, status: error.statusCode || 502, latency: Date.now() - startedAt, error: error.message, request, category: error.statusCode === 429 ? 'rate_limit' : 'upstream_error' });
       throw error;
     }
     const isStream = String(forwarded.headers['content-type'] || '').includes('text/event-stream');
     const completion = this.observe(forwarded.stream, body, isStream, forwarded.status)
-      .then((usage) => this.record({ requestId: forwarded.requestId, key, model, usage, status: forwarded.status, latency: Date.now() - startedAt }))
-      .catch((error) => this.record({ requestId: forwarded.requestId, key, model, usage: {}, status: 499, latency: Date.now() - startedAt, error: error.message }))
+      .then(({ usage, error }) => {
+        const category = forwarded.status >= 200 && forwarded.status < 400 ? 'success' : [401, 403].includes(forwarded.status) ? 'upstream_auth' : 'upstream_error';
+        const fallback = category === 'upstream_auth' ? '上游拒绝了供应商 API Key，请检查上游凭据' : `上游返回 HTTP ${forwarded.status}`;
+        this.record({ requestId: forwarded.requestId, key, model, usage, status: forwarded.status, latency: Date.now() - startedAt, error: category === 'success' ? '' : error || fallback, request, category });
+      })
+      .catch((error) => this.record({ requestId: forwarded.requestId, key, model, usage: {}, status: 499, latency: Date.now() - startedAt, error: error.message, request, category: 'upstream_error' }))
       .finally(() => { reply.raw.off('close', onDisconnect); releaseProvider(); release(); });
     completion.catch(() => {});
     reply.code(forwarded.status);
@@ -258,11 +278,13 @@ export class Gateway {
       let output = '';
       let plain = '';
       let sseBuffer = '';
+      let upstreamError = '';
       const consumeEvent = (line) => {
         if (!line.startsWith('data:') || line.trim() === 'data: [DONE]') return;
         try {
           const data = JSON.parse(line.slice(5).trim());
           if (data.usage) usage = data.usage;
+          if (data.error) upstreamError = data.error.message || String(data.error);
           for (const choice of data.choices || []) output += choice.delta?.content || choice.text || '';
         } catch { /* Ignore non-JSON SSE event data. */ }
       };
@@ -279,6 +301,7 @@ export class Gateway {
           try {
             const data = JSON.parse(plain);
             usage = data.usage || {};
+            upstreamError = data.error?.message || data.message || '';
             output = (data.choices || []).map((choice) => choice.message?.content || choice.text || '').join('');
           } catch { /* Upstream errors without usage are still logged. */ }
         }
@@ -286,25 +309,33 @@ export class Gateway {
         if (successful && !usage.prompt_tokens) usage.prompt_tokens = estimateTokens(JSON.stringify(body));
         if (successful && !usage.completion_tokens && !pathIsEmbedding(body)) usage.completion_tokens = output ? estimateTokens(output) : 0;
         usage.total_tokens = usage.total_tokens || (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
-        resolve(usage);
+        if (!successful && !upstreamError) upstreamError = plain.slice(0, 2000);
+        resolve({ usage, error: upstreamError.slice(0, 2000) });
       });
       stream.on('error', reject);
     });
   }
 
-  record({ requestId, key, model, usage, status, latency, error = '' }) {
+  record({ requestId, key, model, usage, status, latency, error = '', request, category }) {
     const prompt = Math.max(0, Number(usage.prompt_tokens || 0));
     const completion = Math.max(0, Number(usage.completion_tokens || 0));
     const total = Math.max(0, Number(usage.total_tokens || prompt + completion));
     const cost = Math.round(prompt * model.input_price + completion * model.output_price);
+    const headers = request ? Object.fromEntries(Object.entries(request.headers).map(([name, value]) => [
+      name,
+      ['authorization', 'x-api-key', 'cookie'].includes(name.toLowerCase()) ? '[redacted]' : value,
+    ])) : {};
+    const resultCategory = category || (status >= 200 && status < 400 ? 'success' : 'error');
     try {
       transaction(() => {
         db.prepare(`INSERT OR IGNORE INTO usage_logs
-          (request_id, key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens, cost_micros, status, latency_ms, error)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(requestId, key.id, model.provider_id, model.name, prompt, completion, total, cost, status, latency, error);
-        db.prepare(`UPDATE api_keys SET used_tokens = used_tokens + ?, used_cost_micros = used_cost_micros + ?,
-          last_used_at = datetime('now') WHERE id = ?`).run(total, cost, key.id);
+          (request_id, key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens, cost_micros, status, latency_ms, category, ip, headers_json, error)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(requestId, key.id || null, model.provider_id || null, model.name, prompt, completion, total, cost, status, latency, resultCategory, request?.ip || '', JSON.stringify(headers), error);
+        if (key.id) {
+          db.prepare(`UPDATE api_keys SET used_tokens = used_tokens + ?, used_cost_micros = used_cost_micros + ?,
+            last_used_at = datetime('now') WHERE id = ?`).run(total, cost, key.id);
+        }
       });
     } catch (databaseError) {
       console.error('Failed to record usage', databaseError);

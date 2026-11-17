@@ -141,9 +141,24 @@ Content-Type: application/json
 | `page` | 页码，从 1 开始，默认 1 |
 | `key_id` | 可选 Key ID |
 | `provider_id` | 可选供应商 ID |
-| `status` | `success` 或 `error` |
+| `status` | 按 HTTP 状态筛选：`success` 为 200–399，`error` 为其他状态 |
+| `category` | 可选请求分类，见下表 |
 
-每页 30 条，返回 `logs`、`total`、`page`、`pages`。
+每页 30 条，返回 `logs`、`total`、`page`、`pages`。每条日志包含请求 ID、模型、Token、费用、延迟、状态、错误原因，以及 `category`、`ip`、`headers_json` 和解析后的 `headers`。不保存提示词与模型输出正文。
+
+| `category` | 含义 |
+| --- | --- |
+| `success` | 正常完成 |
+| `client_mismatch` | User-Agent 不匹配，已返回客户端提示流 |
+| `rate_limit` | Key 额度、RPM 或并发受限 |
+| `auth_error` | Key 缺失、无效、过期或无模型权限 |
+| `request_error` | 请求格式错误 |
+| `provider_offline` | 模型不存在或供应商离线 |
+| `upstream_auth` | 上游返回 401/403，供应商凭据鉴权失败 |
+| `upstream_error` | 其他上游错误或连接中断 |
+| `error` | 其他错误，或旧版日志未记录分类 |
+
+请求 IP 和请求头详情保留 5 小时，服务启动时和每小时自动清理；Token、费用等用量统计继续保留。`Authorization`、`x-api-key` 和 `Cookie` 入库前始终替换为 `[redacted]`。
 
 ## 供应商管理
 
@@ -262,9 +277,9 @@ Content-Type: application/json
 
 替换指定 Key 的凭据，保留名称、额度和限流配置。旧 Key 立即失效，新完整 Key 仅返回一次，用于管理员复制 Base URL、Model ID 和接入环境变量。
 
-### GET /api/admin/blocked
+### GET /api/admin/blocked（兼容接口）
 
-返回最近 5 小时的客户端拦截记录，包含模型、Key、供应商、IP、User-Agent 和实际请求头。每小时自动清理，Authorization、x-api-key 和 Cookie 始终脱敏。
+管理界面已统一使用 `/api/admin/usage`，不再有独立的拦截记录页面。此兼容接口仅返回最近 5 小时 `category=client_mismatch` 的记录，字段结构与统一日志一致。新集成请使用 `/api/admin/usage?category=client_mismatch`。
 
 ## 设置与密码
 
