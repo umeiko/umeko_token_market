@@ -68,7 +68,7 @@ Content-Type: application/json
 }
 ```
 
-云端对聊天流式请求补充 `stream_options.include_usage=true`。响应状态、非 hop-by-hop 响应头和正文来自上游，额外返回 `x-request-id`。
+云端对聊天流式请求补充 `stream_options.include_usage=true`。成功响应的状态、非 hop-by-hop 响应头和正文来自上游，额外返回 `x-request-id`；上游错误正文会按下方规则追加管理员提示。
 
 ### POST /v1/messages（Anthropic）
 
@@ -89,6 +89,28 @@ Content-Type: application/json
 支持 system、user/assistant 消息、text/base64 image 内容块、max_tokens、temperature、top_p、stop_sequences 与 stream。工具调用内容块暂未转换，应改用 OpenAI 接口。
 
 普通响应转换为 Anthropic `message` JSON，流式响应依次产生 `message_start`、`content_block_start`、`content_block_delta`、`content_block_stop`、`message_delta` 和 `message_stop`。错误使用 `{ "type": "error", "error": { "type": "...", "message": "..." } }`。
+
+## 限额与上游错误
+
+API Key 或账户的五小时、周 Token 限额耗尽时，请求在鉴权阶段返回 HTTP 429，不会转发到上游。即使请求使用 `stream: true`，也返回普通 JSON 错误。
+
+OpenAI 兼容格式示例：
+
+```json
+{
+  "error": {
+    "message": "API Key 的五小时 Token 限额已用尽，预计于 2026-11-17T20:00:00.000Z 恢复（1小时30分钟后）",
+    "type": "rate_limit_error",
+    "reset_at": "2026-11-17T20:00:00.000Z",
+    "retry_after_seconds": 5400,
+    "quota_window": "5h"
+  }
+}
+```
+
+Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上述字段。`reset_at` 是 UTC ISO 8601 时间，`retry_after_seconds` 是建议等待秒数，`quota_window` 为 `5h` 或 `week`，响应还包含十进制秒数的 `Retry-After` 头。恢复时间按滚动窗口内的实际 Token 记录计算，不是固定的整点重置。
+
+上游返回非 2xx 状态或连接失败时，错误消息会追加“请联系管理员”。该规则适用于 OpenAI JSON、Anthropic JSON 和上游 SSE 错误，原始 HTTP 状态和可用错误信息保留；成功响应不追加此提示。
 
 ## 管理员认证
 

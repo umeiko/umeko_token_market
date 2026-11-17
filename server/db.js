@@ -186,6 +186,26 @@ export function getKeyWindowUsage(keyId, window, resetAt = null) {
       AND (? IS NULL OR created_at > ?)`).get(keyId, window, resetAt, resetAt).used;
 }
 
+export function getQuotaResetAt({ keyId, userId, window, quota, resetAt = null }) {
+  const rows = userId === undefined
+    ? db.prepare(`SELECT created_at, total_tokens FROM usage_logs
+        WHERE key_id = ? AND created_at >= datetime('now', ?) AND (? IS NULL OR created_at > ?) AND total_tokens > 0
+        ORDER BY created_at DESC, id DESC`).all(keyId, window, resetAt, resetAt)
+    : db.prepare(`SELECT l.created_at, l.total_tokens FROM usage_logs l JOIN api_keys k ON k.id = l.key_id
+        WHERE k.user_id = ? AND l.created_at >= datetime('now', ?) AND (? IS NULL OR l.created_at > ?) AND l.total_tokens > 0
+        ORDER BY l.created_at DESC, l.id DESC`).all(userId, window, resetAt, resetAt);
+  let retained = 0;
+  for (const row of rows) {
+    retained += row.total_tokens;
+    if (retained >= quota) {
+      const usedAt = new Date(`${row.created_at.replace(' ', 'T')}Z`).getTime();
+      const windowMs = window === '-5 hours' ? 5 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+      return new Date(usedAt + windowMs + 1000).toISOString();
+    }
+  }
+  return null;
+}
+
 export function getUserUsage(userId) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!user) return null;

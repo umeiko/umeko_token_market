@@ -1,10 +1,27 @@
 import { anthropicResponseStream, anthropicToOpenAI } from './anthropic.js';
-import { db, getKeyWindowUsage, getUserUsage, transaction } from './db.js';
+import { db, getKeyWindowUsage, getQuotaResetAt, getUserUsage, transaction } from './db.js';
 import { forwardDirectProvider } from './directProvider.js';
 import { bearerToken, hashToken } from './security.js';
+import { upstreamErrorStream, withAdminContact } from './errors.js';
 
 const estimateTokens = (text) => Math.max(1, Math.ceil(String(text).length / 4));
 const asOpenAIError = (message, type = 'api_error') => ({ error: { message, type } });
+const formatDuration = (seconds) => {
+  const units = [['天', 86400], ['小时', 3600], ['分钟', 60], ['秒', 1]];
+  let remaining = seconds;
+  return units.map(([label, size]) => {
+    const value = Math.floor(remaining / size);
+    remaining %= size;
+    return value ? `${value}${label}` : '';
+  }).filter(Boolean).join('') || '0秒';
+};
+const quotaError = (message, resetAt, quotaWindow) => {
+  const reset = resetAt || new Date(Date.now() + 1000).toISOString();
+  const retryAfterSeconds = Math.max(1, Math.ceil((new Date(reset).getTime() - Date.now()) / 1000));
+  return Object.assign(new Error(`${message}，预计于 ${reset} 恢复（${formatDuration(retryAfterSeconds)}后）`), {
+    statusCode: 429, resetAt: reset, retryAfterSeconds, quotaWindow,
+  });
+};
 const allowedModels = (key) => {
   try {
     const models = JSON.parse(key.allowed_models || '[]');
@@ -39,20 +56,24 @@ export class Gateway {
       throw Object.assign(new Error('API Key 的费用额度已用尽'), { statusCode: 429 });
     }
     if (key.quota_5h > 0 && getKeyWindowUsage(key.id, '-5 hours', key.quota_reset_5h_at) >= key.quota_5h) {
-      throw Object.assign(new Error('API Key 的五小时 Token 限额已用尽'), { statusCode: 429 });
+      const resetAt = getQuotaResetAt({ keyId: key.id, window: '-5 hours', quota: key.quota_5h, resetAt: key.quota_reset_5h_at });
+      throw quotaError('API Key 的五小时 Token 限额已用尽', resetAt, '5h');
     }
     if (key.quota_week > 0 && getKeyWindowUsage(key.id, '-7 days', key.quota_reset_week_at) >= key.quota_week) {
-      throw Object.assign(new Error('API Key 的每周 Token 限额已用尽'), { statusCode: 429 });
+      const resetAt = getQuotaResetAt({ keyId: key.id, window: '-7 days', quota: key.quota_week, resetAt: key.quota_reset_week_at });
+      throw quotaError('API Key 的每周 Token 限额已用尽', resetAt, 'week');
     }
     if (key.user_id) {
       const user = db.prepare('SELECT enabled FROM users WHERE id = ?').get(key.user_id);
       if (!user?.enabled) throw Object.assign(new Error('用户账户已被停用'), { statusCode: 401 });
       const usage = getUserUsage(key.user_id);
       if (usage.five_hours.quota > 0 && usage.five_hours.used >= usage.five_hours.quota) {
-        throw Object.assign(new Error('账户五小时 Token 限额已用尽'), { statusCode: 429 });
+        const resetAt = getQuotaResetAt({ userId: key.user_id, window: '-5 hours', quota: usage.five_hours.quota, resetAt: user.quota_reset_5h_at });
+        throw quotaError('账户五小时 Token 限额已用尽', resetAt, '5h');
       }
       if (usage.week.quota > 0 && usage.week.used >= usage.week.quota) {
-        throw Object.assign(new Error('账户每周 Token 限额已用尽'), { statusCode: 429 });
+        const resetAt = getQuotaResetAt({ userId: key.user_id, window: '-7 days', quota: usage.week.quota, resetAt: user.quota_reset_week_at });
+        throw quotaError('账户每周 Token 限额已用尽', resetAt, 'week');
       }
     }
     const now = Date.now();
@@ -243,10 +264,16 @@ export class Gateway {
       forwarded = model.provider_type && model.provider_type !== 'tunnel'
         ? await forwardDirectProvider(model, options)
         : await this.tunnel.forward({ id: model.provider_id }, options);
+      if (forwarded.status >= 400) {
+        const upstreamIsStream = String(forwarded.headers['content-type'] || '').includes('text/event-stream');
+        forwarded.stream = await upstreamErrorStream(forwarded.stream, upstreamIsStream, forwarded.status);
+        if (!upstreamIsStream) forwarded.headers['content-type'] = 'application/json; charset=utf-8';
+      }
     } catch (error) {
       reply.raw.off('close', onDisconnect);
       releaseProvider();
       release();
+      if (forwarded || !error.statusCode || error.statusCode >= 500) error.upstream = true;
       this.record({ requestId: forwarded?.requestId || crypto.randomUUID(), key, model, usage: {}, status: error.statusCode || 502, latency: Date.now() - startedAt, error: error.message, request, category: error.statusCode === 429 ? 'rate_limit' : 'upstream_error' });
       throw error;
     }
@@ -350,7 +377,14 @@ function pathIsEmbedding(body) {
 
 export function sendGatewayError(reply, error) {
   const status = error.statusCode || 500;
-  const payload = asOpenAIError(status === 500 ? '中转服务内部错误' : error.message, status === 429 ? 'rate_limit_error' : 'api_error');
+  const message = error.upstream ? withAdminContact(error.message) : status === 500 ? '中转服务内部错误' : error.message;
+  const payload = asOpenAIError(message, status === 429 ? 'rate_limit_error' : 'api_error');
+  if (error.resetAt) {
+    payload.error.reset_at = error.resetAt;
+    payload.error.retry_after_seconds = error.retryAfterSeconds;
+    payload.error.quota_window = error.quotaWindow;
+    reply.header('Retry-After', String(error.retryAfterSeconds));
+  }
   if (error.customResponse) {
     const field = /^[a-zA-Z_][a-zA-Z0-9_]{0,40}$/.test(error.customResponse.field) ? error.customResponse.field : 'message';
     payload.error[field] = error.customResponse.message;

@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { withAdminContact } from './errors.js';
 
 const invalid = (message) => Object.assign(new Error(message), { statusCode: 400 });
 
@@ -50,11 +51,19 @@ const responseText = (choice) => {
 
 function errorBody(error, status) {
   const type = status === 401 ? 'authentication_error' : status === 429 ? 'rate_limit_error' : status === 400 ? 'invalid_request_error' : 'api_error';
-  return { type: 'error', error: { type, message: error.message || '中转服务内部错误' } };
+  const message = error.upstream ? withAdminContact(error.message) : error.message || '中转服务内部错误';
+  const payload = { type: 'error', error: { type, message } };
+  if (error.resetAt) {
+    payload.error.reset_at = error.resetAt;
+    payload.error.retry_after_seconds = error.retryAfterSeconds;
+    payload.error.quota_window = error.quotaWindow;
+  }
+  return payload;
 }
 
 export function sendAnthropicError(reply, error) {
   const status = error.statusCode || 500;
+  if (error.retryAfterSeconds) reply.header('Retry-After', String(error.retryAfterSeconds));
   return reply.code(status).send(errorBody(error, status));
 }
 
@@ -129,12 +138,26 @@ export function anthropicResponseStream(upstream, { isStream, status, model, req
     emit('message_stop', { type: 'message_stop' });
     output.push(null);
   };
+  const fail = (message) => {
+    if (stopped) return;
+    stopped = true;
+    emit('error', errorBody(new Error(message), status));
+    output.push(null);
+  };
   const consume = (line) => {
     if (!line.startsWith('data:')) return;
     const payload = line.slice(5).trim();
-    if (payload === '[DONE]') { finish(); return; }
+    if (payload === '[DONE]') {
+      if (status >= 400) fail(`上游返回 HTTP ${status}，请联系管理员`);
+      else finish();
+      return;
+    }
     let data;
     try { data = JSON.parse(payload); } catch { return; }
+    if (status >= 400) {
+      fail(data.error?.message || `上游返回 HTTP ${status}，请联系管理员`);
+      return;
+    }
     if (data.usage) {
       inputTokens = data.usage.prompt_tokens || inputTokens;
       outputTokens = data.usage.completion_tokens || outputTokens;
@@ -156,7 +179,8 @@ export function anthropicResponseStream(upstream, { isStream, status, model, req
   });
   upstream.on('end', () => {
     if (buffer) consume(buffer);
-    finish();
+    if (status >= 400) fail(`上游返回 HTTP ${status}，请联系管理员`);
+    else finish();
   });
   upstream.on('error', (error) => output.destroy(error));
   return output;
