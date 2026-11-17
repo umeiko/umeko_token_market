@@ -254,6 +254,10 @@ Content-Type: application/json
 - `expires_at`：修改或清空过期时间；
 - `reset_usage: true`：累计 Token 和费用清零，并重置五小时/周起算点，历史日志保留。
 
+### GET /api/admin/keys/:id/reveal
+
+管理员解密查看已有 Key 的完整内容。新 Key 使用 AES-256-GCM 加密存储，不会在列表接口返回。早期仅保存哈希的旧 Key 返回 `legacy: true`，无法恢复原文。
+
 ### POST /api/admin/keys/:id/rotate
 
 替换指定 Key 的凭据，保留名称、额度和限流配置。旧 Key 立即失效，新完整 Key 仅返回一次，用于管理员复制 Base URL、Model ID 和接入环境变量。

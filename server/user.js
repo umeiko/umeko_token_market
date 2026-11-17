@@ -2,6 +2,7 @@ import { randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto
 import { db, getUserUsage, transaction } from './db.js';
 import { consumeRateLimit, createApiKey, sessionExpired, touchSession, verifySameOrigin } from './security.js';
 import { isDevelopmentEmail, sendVerificationEmail } from './mailer.js';
+import { encryptProviderKey } from './providerCrypto.js';
 
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -202,10 +203,11 @@ export async function userRoutes(app, { tunnel }) {
       if (!plan) throw error(404, '该申请方案不存在或已关闭');
     }
     const credentials = createApiKey();
+    const encrypted = encryptProviderKey(credentials.token);
     const result = db.prepare(`INSERT INTO api_keys
-      (user_id, name, key_hash, key_prefix, token_quota, budget_quota_micros, quota_5h, quota_week, rpm_limit, concurrency_limit)
-      VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`)
-      .run(request.user.id, name, credentials.hash, credentials.prefix,
+      (user_id, name, key_hash, key_prefix, key_ciphertext, key_iv, key_tag, token_quota, budget_quota_micros, quota_5h, quota_week, rpm_limit, concurrency_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`)
+      .run(request.user.id, name, credentials.hash, credentials.prefix, encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag,
         plan?.quota_5h || 0, plan?.quota_week || 0, plan?.rpm_limit ?? 60, plan?.concurrency_limit ?? 2);
     return { id: Number(result.lastInsertRowid), key: credentials.token };
   });

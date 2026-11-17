@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { changePassword, db, getSettings, getUserUsage, setSetting, verifyAdmin } from './db.js';
 import { consumeRateLimit, createAgentToken, createApiKey, publicProvider, sessionExpired, touchSession, verifySameOrigin } from './security.js';
-import { encryptProviderKey } from './providerCrypto.js';
+import { decryptProviderKey, encryptProviderKey } from './providerCrypto.js';
 import { parsePublicKey, verifySshSignature } from './sshAuth.js';
 import { createEd25519Challenge, verifyEd25519Signature } from './ed25519Auth.js';
 
@@ -25,6 +25,9 @@ function keyView(row, gateway) {
     ...row,
     allowed_models: allowedModels(row.allowed_models),
     key_hash: undefined,
+    key_ciphertext: undefined,
+    key_iv: undefined,
+    key_tag: undefined,
     enabled: Boolean(row.enabled),
     allow_user_apply: Boolean(row.allow_user_apply),
     active: gateway.activeForKey(row.id),
@@ -302,11 +305,14 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     const body = request.body || {};
     if (!body.name?.trim()) throw badRequest('请填写 Key 名称');
     const credentials = createApiKey();
+    const encrypted = encryptProviderKey(credentials.token);
     const result = db.prepare(`INSERT INTO api_keys
-      (name, key_hash, key_prefix, allowed_models, token_quota, budget_quota_micros, quota_5h, quota_week,
+      (name, key_hash, key_prefix, key_ciphertext, key_iv, key_tag, allowed_models, client_mode, client_pattern,
+       token_quota, budget_quota_micros, quota_5h, quota_week,
        allow_user_apply, rpm_limit, concurrency_limit, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(body.name.trim(), credentials.hash, credentials.prefix, JSON.stringify(allowedModels(body.allowed_models)), Math.max(0, number(body.token_quota)),
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(body.name.trim(), credentials.hash, credentials.prefix, encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag,
+        JSON.stringify(allowedModels(body.allowed_models)), body.client_mode || 'regex', body.client_pattern || '', Math.max(0, number(body.token_quota)),
         Math.round(Math.max(0, number(body.budget_quota)) * 1e6),
         Math.max(0, Math.floor(number(body.quota_5h))), Math.max(0, Math.floor(number(body.quota_week))),
         bool(body.allow_user_apply), Math.max(0, number(body.rpm_limit, 60)),
@@ -321,9 +327,10 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     if (body.reset_usage) {
       db.prepare("UPDATE api_keys SET used_tokens = 0, used_cost_micros = 0, quota_reset_5h_at = datetime('now'), quota_reset_week_at = datetime('now') WHERE id = ?").run(current.id);
     }
-    db.prepare(`UPDATE api_keys SET name = ?, allowed_models = ?, token_quota = ?, budget_quota_micros = ?, quota_5h = ?, quota_week = ?,
+    db.prepare(`UPDATE api_keys SET name = ?, allowed_models = ?, client_mode = ?, client_pattern = ?, token_quota = ?, budget_quota_micros = ?, quota_5h = ?, quota_week = ?,
       allow_user_apply = ?, rpm_limit = ?, concurrency_limit = ?, enabled = ?, expires_at = ? WHERE id = ?`).run(
-      body.name?.trim() || current.name, JSON.stringify(allowedModels(body.allowed_models === undefined ? current.allowed_models : body.allowed_models)), Math.max(0, number(body.token_quota, current.token_quota)),
+      body.name?.trim() || current.name, JSON.stringify(allowedModels(body.allowed_models === undefined ? current.allowed_models : body.allowed_models)),
+      body.client_mode ?? current.client_mode, body.client_pattern ?? current.client_pattern, Math.max(0, number(body.token_quota, current.token_quota)),
       Math.round(Math.max(0, number(body.budget_quota, current.budget_quota_micros / 1e6)) * 1e6),
       Math.max(0, Math.floor(number(body.quota_5h, current.quota_5h))), Math.max(0, Math.floor(number(body.quota_week, current.quota_week))),
       body.allow_user_apply === undefined ? current.allow_user_apply : bool(body.allow_user_apply),
@@ -337,8 +344,17 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     const current = db.prepare('SELECT id FROM api_keys WHERE id = ?').get(request.params.id);
     if (!current) throw badRequest('Key 不存在');
     const credentials = createApiKey();
-    db.prepare('UPDATE api_keys SET key_hash = ?, key_prefix = ? WHERE id = ?').run(credentials.hash, credentials.prefix, current.id);
+    const encrypted = encryptProviderKey(credentials.token);
+    db.prepare('UPDATE api_keys SET key_hash = ?, key_prefix = ?, key_ciphertext = ?, key_iv = ?, key_tag = ? WHERE id = ?')
+      .run(credentials.hash, credentials.prefix, encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag, current.id);
     return { key: credentials.token, prefix: credentials.prefix };
+  });
+
+  app.get('/api/admin/keys/:id/reveal', { preHandler: requireAdmin }, async (request) => {
+    const current = db.prepare('SELECT key_ciphertext, key_iv, key_tag FROM api_keys WHERE id = ?').get(request.params.id);
+    if (!current) throw badRequest('Key 不存在');
+    if (!current.key_ciphertext) return { key: null, legacy: true };
+    return { key: decryptProviderKey({ api_key_ciphertext: current.key_ciphertext, api_key_iv: current.key_iv, api_key_tag: current.key_tag }), legacy: false };
   });
 
   app.get('/api/admin/usage', { preHandler: requireAdmin }, async (request) => {

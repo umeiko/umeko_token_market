@@ -125,23 +125,23 @@ export class Gateway {
     };
   }
 
-  validateClient(provider, userAgent = '') {
-    if (!provider.client_pattern) return;
+  validateClient(key, userAgent = '') {
+    if (!key.client_pattern) return;
     let expression;
-    if (provider.client_mode === 'template') {
-      const escaped = provider.client_pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (key.client_mode === 'template') {
+      const escaped = key.client_pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       expression = new RegExp(`^${escaped.replaceAll('\\*', '.*')}$`);
     } else {
-      expression = new RegExp(provider.client_pattern);
+      expression = new RegExp(key.client_pattern);
     }
     if (expression.test(userAgent)) return;
-    const defaultMessage = `供应商 ${provider.provider_name} 拒绝了客户端 ${userAgent || '未知'}，请使用要求的客户端`;
-    const message = (provider.client_error_message || defaultMessage)
+    const defaultMessage = `API Key ${key.name} 拒绝了客户端 ${userAgent || '未知'}，请使用要求的客户端`;
+    const message = (key.client_error_message || defaultMessage)
       .replaceAll('{{userAgent}}', userAgent || '未知')
-      .replaceAll('{{provider}}', provider.provider_name);
+      .replaceAll('{{provider}}', key.name);
     throw Object.assign(new Error(message), {
       statusCode: 403,
-      customResponse: { field: provider.client_error_field || 'message', message, code: provider.client_error_code || 'client_mismatch' },
+      customResponse: { field: key.client_error_field || 'message', message, code: key.client_error_code || 'client_mismatch' },
     });
   }
 
@@ -201,7 +201,7 @@ export class Gateway {
     if (!modelName) throw Object.assign(new Error('请求中缺少 model'), { statusCode: 400 });
     const model = this.selectProvider(modelName, key);
     try {
-      this.validateClient(model, String(request.headers['user-agent'] || ''));
+      this.validateClient(key, String(request.headers['user-agent'] || ''));
     } catch (error) {
       if (error.customResponse) return this.rejectClient(request, reply, key, model, anthropic);
       throw error;
