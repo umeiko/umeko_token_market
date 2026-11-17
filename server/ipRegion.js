@@ -1,3 +1,5 @@
+import { get as httpGet } from 'node:http';
+import { get as httpsGet } from 'node:https';
 import { isIP } from 'node:net';
 
 function localRegion(ip) {
@@ -23,13 +25,33 @@ function localRegion(ip) {
   return '';
 }
 
+function getJson(url) {
+  return new Promise((resolve, reject) => {
+    const get = url.protocol === 'https:' ? httpsGet : httpGet;
+    const request = get(url, { family: 4, headers: { accept: 'application/json' } }, (response) => {
+      let text = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        text += chunk;
+        if (text.length > 2 * 1024 * 1024) request.destroy(new Error('IP region response too large'));
+      });
+      response.on('end', () => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(`IP region lookup returned ${response.statusCode}`));
+          return;
+        }
+        try { resolve(JSON.parse(text)); } catch (error) { reject(error); }
+      });
+      response.on('error', reject);
+    });
+    request.setTimeout(5000, () => request.destroy(new Error('IP region lookup timeout')));
+    request.on('error', reject);
+  });
+}
+
 async function lookup(ip) {
   const template = process.env.IP_GEO_LOOKUP_URL || 'https://ipwho.is/{ip}';
-  const response = await fetch(template.replaceAll('{ip}', encodeURIComponent(ip)), {
-    headers: { accept: 'application/json' }, signal: AbortSignal.timeout(5000),
-  });
-  if (!response.ok) throw new Error(`IP region lookup returned ${response.status}`);
-  const data = await response.json();
+  const data = await getJson(new URL(template.replaceAll('{ip}', encodeURIComponent(ip))));
   if (data.success === false) return '';
   return [...new Set([data.country, data.region, data.city]
     .filter((part) => typeof part === 'string' && part.trim())
@@ -51,7 +73,8 @@ export class IpRegionResolver {
     const task = lookup(ip).then((region) => {
       this.cache.set(ip, { region, expires: Date.now() + (region ? 86400000 : 300000) });
       return region;
-    }).catch(() => {
+    }).catch((error) => {
+      console.warn(`IP region lookup failed for ${ip}: ${error.message}`);
       this.cache.set(ip, { region: '', expires: Date.now() + 300000 });
       return '';
     }).finally(() => this.pending.delete(ip));
