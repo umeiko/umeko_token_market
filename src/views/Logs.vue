@@ -50,7 +50,7 @@ onBeforeUnmount(() => window.removeEventListener('relay-refresh', load));
     <EmptyState v-else-if="!logs.length" title="没有匹配的请求" text="调整筛选条件，或发起一次 API 调用后再查看。" />
     <div v-else class="table-wrap">
       <table class="logs-table">
-        <thead><tr><th>时间 / 请求 ID</th><th>Key / 供应商</th><th>模型</th><th>IP / 地区</th><th>分类</th><th>Token（入 / 出）</th><th>状态</th><th>详情</th></tr></thead>
+        <thead><tr><th>时间 / 请求 ID</th><th>Key / 供应商</th><th>模型</th><th>IP / 地区</th><th>分类</th><th>Token（入 / 出）</th><th>用户客户端</th><th>详情</th></tr></thead>
         <tbody v-for="log in logs" :key="log.id">
           <tr>
             <td><div>{{ formatDate(log.created_at) }}</div><code class="request-id">{{ log.request_id.slice(0, 8) }}</code></td>
@@ -59,7 +59,7 @@ onBeforeUnmount(() => window.removeEventListener('relay-refresh', load));
             <td><code class="log-ip">{{ log.ip || '—' }}</code><small class="muted">{{ log.ip_region || (log.ip ? '查询中 / 未知' : '详情已过期') }}</small></td>
             <td><span class="badge" :class="badgeType(log.category)">{{ labels[log.category] || log.category }}</span></td>
             <td>{{ formatNumber(log.prompt_tokens) }} / {{ formatNumber(log.completion_tokens) }}</td>
-            <td><span class="badge" :class="log.status < 400 ? 'success' : 'danger'">{{ log.status }}</span></td>
+            <td class="client-cell" :title="log.headers?.['user-agent'] || '未知或详情已过期'">{{ log.headers?.['user-agent'] || '未知或详情已过期' }}</td>
             <td><button class="button small" :aria-expanded="expanded === log.id" @click="expanded = expanded === log.id ? null : log.id"><UiIcon name="info" :size="14" />{{ expanded === log.id ? '收起' : '详情' }}</button></td>
           </tr>
           <tr v-if="expanded === log.id" class="request-detail-row">
