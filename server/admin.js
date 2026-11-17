@@ -209,6 +209,13 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     return { providers };
   });
 
+  app.get('/api/admin/providers/:id/reveal', { preHandler: requireAdmin }, async (request) => {
+    const current = db.prepare('SELECT api_key_ciphertext, api_key_iv, api_key_tag FROM providers WHERE id = ?').get(request.params.id);
+    if (!current) throw badRequest('供应商不存在');
+    if (!current.api_key_ciphertext) return { key: null, legacy: true };
+    return { key: decryptProviderKey(current), legacy: false };
+  });
+
   app.post('/api/admin/providers', { preHandler: requireAdmin }, async (request) => {
     const body = request.body || {};
     const { name, description = '', max_concurrency = 4, models = [], provider_type = 'tunnel' } = body;

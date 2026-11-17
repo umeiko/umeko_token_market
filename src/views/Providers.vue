@@ -7,7 +7,7 @@ import UiModal from '../components/UiModal.vue';
 import SecretModal from '../components/SecretModal.vue';
 import EmptyState from '../components/EmptyState.vue';
 
-const providers = ref([]), loading = ref(true), modal = ref(''), busy = ref(false), selected = ref(null), secret = ref(null), modelModal = ref(false);
+const providers = ref([]), loading = ref(true), modal = ref(''), busy = ref(false), selected = ref(null), secret = ref(null), upstreamSecret = ref(null), modelModal = ref(false);
 const blank = () => ({
   name: '', description: '', provider_type: 'tunnel', base_url: '', api_key: '', max_concurrency: 4, enabled: true,
   client_mode: 'regex', client_pattern: '', client_error_field: 'message', client_error_message: '', client_error_code: '',
@@ -29,6 +29,11 @@ function openEdit(provider) {
     client_error_code: provider.client_error_code, models: [],
   });
   modal.value = 'edit';
+}
+async function revealUpstream(provider) {
+  const result = await run(() => api('GET', `/api/admin/providers/${provider.id}/reveal`));
+  if (result?.key) upstreamSecret.value = result.key;
+  else if (result?.legacy) notify('该上游密钥是早期未加密记录，无法恢复，请重新输入一次', true);
 }
 async function save() {
   busy.value = true;
@@ -89,7 +94,7 @@ async function removeModel(model) {
     <form id="provider-form" class="stack" @submit.prevent="save">
       <div class="form-grid two"><div class="field"><label>供应商名称</label><input v-model="form.name" placeholder="例如：家中 4090 / OpenAI 主账号" required /></div><div class="field"><label>供应商类型</label><select v-model="form.provider_type" :disabled="!!selected"><option value="tunnel">本地反向隧道</option><option value="openai">OpenAI 兼容云端</option><option value="anthropic">Anthropic Messages</option></select></div></div>
       <div class="field"><label>描述</label><input v-model="form.description" placeholder="硬件、账号或用途（可选）" /></div>
-      <template v-if="form.provider_type !== 'tunnel'"><div class="form-grid two"><div class="field"><label>上游 Base URL</label><input v-model="form.base_url" :placeholder="form.provider_type === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com'" required /></div><div class="field"><label>上游 API Key</label><input v-model="form.api_key" type="password" :placeholder="selected ? '留空则保留现有密钥' : 'sk-...'" :required="!selected" /><span class="help-text">使用 AES-256-GCM 加密存储，不会通过管理接口返回。</span></div></div></template>
+      <template v-if="form.provider_type !== 'tunnel'"><div class="form-grid two"><div class="field"><label>上游 Base URL</label><input v-model="form.base_url" :placeholder="form.provider_type === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com'" required /></div><div class="field"><label>上游 API Key</label><input v-model="form.api_key" type="password" :placeholder="selected ? '留空则保留现有密钥' : 'sk-...'" :required="!selected" /><button v-if="selected" type="button" class="button small" @click="revealUpstream(selected)"><UiIcon name="copy" :size="14" />查看并复制 Key</button><span class="help-text">仅管理员可解密查看，留空则保留现有密钥。</span></div></div></template>
       <div class="field"><label>最大并发请求</label><input v-model.number="form.max_concurrency" type="number" min="0" required /><span class="help-text">0 表示不限制，云端直连供应商同样生效。</span></div>
       <template v-if="!selected"><div class="form-section-title">模型别名与单价<span>每百万 Token，美元</span></div><div v-for="(model, index) in form.models" :key="index" class="model-form-row extended"><input v-model="model.name" placeholder="对外别名，如 fast" required /><input v-model="model.upstream_name" placeholder="上游模型，如 gpt-4.1-mini" /><input v-model.number="model.input_price" type="number" min="0" step="0.01" aria-label="输入价格" /><input v-model.number="model.output_price" type="number" min="0" step="0.01" aria-label="输出价格" /><button v-if="form.models.length > 1" type="button" class="icon-button" @click="form.models.splice(index, 1)"><UiIcon name="close" :size="16" /></button></div><button type="button" class="text-button self-start" @click="form.models.push({ name: '', upstream_name: '', input_price: 0, output_price: 0 })"><UiIcon name="plus" :size="14" />再添加一个模型</button></template>
     </form>
@@ -97,4 +102,5 @@ async function removeModel(model) {
   </UiModal>
   <UiModal v-if="modelModal" title="添加模型别名" subtitle="客户端请求别名，转发时替换为上游真实模型名。" @close="modelModal = false"><form id="model-form" class="stack" @submit.prevent="addModel"><div class="form-grid two"><div class="field"><label>对外模型别名</label><input v-model="modelForm.name" placeholder="例如 fast" required /></div><div class="field"><label>上游模型名称</label><input v-model="modelForm.upstream_name" placeholder="留空则与别名相同" /></div></div><div class="form-grid two"><div class="field"><label>输入价格 ($ / 1M)</label><input v-model.number="modelForm.input_price" type="number" min="0" step="0.01" /></div><div class="field"><label>输出价格 ($ / 1M)</label><input v-model.number="modelForm.output_price" type="number" min="0" step="0.01" /></div></div></form><template #footer><button @click="modelModal = false">取消</button><button class="primary" form="model-form">添加模型</button></template></UiModal>
   <SecretModal v-if="secret" :title="secret.title" :secret="secret.token" :command="secret.command" description="这是供应商连接凭据，不是客户端 API Key。请勿对外公开。" @close="secret = null" />
+  <SecretModal v-if="upstreamSecret" title="上游 API Key" :secret="upstreamSecret" description="仅管理员可见。请妥善保管，不要分享给调用方。" @close="upstreamSecret = null" />
 </template>
