@@ -1,6 +1,6 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-import { api, formatCost, formatDate, formatNumber } from '../api.js';
+import { api, formatDate, formatNumber } from '../api.js';
 import EmptyState from '../components/EmptyState.vue';
 import UiIcon from '../components/UiIcon.vue';
 
@@ -50,7 +50,7 @@ onBeforeUnmount(() => window.removeEventListener('relay-refresh', load));
     <EmptyState v-else-if="!logs.length" title="没有匹配的请求" text="调整筛选条件，或发起一次 API 调用后再查看。" />
     <div v-else class="table-wrap">
       <table class="logs-table">
-        <thead><tr><th>时间 / 请求 ID</th><th>Key / 供应商</th><th>模型</th><th>IP / 地区</th><th>分类</th><th>Token（入 / 出）</th><th>费用</th><th>延迟</th><th>状态</th><th>详情</th></tr></thead>
+        <thead><tr><th>时间 / 请求 ID</th><th>Key / 供应商</th><th>模型</th><th>IP / 地区</th><th>分类</th><th>Token（入 / 出）</th><th>状态</th><th>详情</th></tr></thead>
         <tbody v-for="log in logs" :key="log.id">
           <tr>
             <td><div>{{ formatDate(log.created_at) }}</div><code class="request-id">{{ log.request_id.slice(0, 8) }}</code></td>
@@ -59,13 +59,11 @@ onBeforeUnmount(() => window.removeEventListener('relay-refresh', load));
             <td><code class="log-ip">{{ log.ip || '—' }}</code><small class="muted">{{ log.ip_region || (log.ip ? '查询中 / 未知' : '详情已过期') }}</small></td>
             <td><span class="badge" :class="badgeType(log.category)">{{ labels[log.category] || log.category }}</span></td>
             <td>{{ formatNumber(log.prompt_tokens) }} / {{ formatNumber(log.completion_tokens) }}</td>
-            <td>{{ formatCost(log.cost_micros / 1e6) }}</td>
-            <td>{{ formatNumber(log.latency_ms) }} ms</td>
             <td><span class="badge" :class="log.status < 400 ? 'success' : 'danger'">{{ log.status }}</span></td>
             <td><button class="button small" :aria-expanded="expanded === log.id" @click="expanded = expanded === log.id ? null : log.id"><UiIcon name="info" :size="14" />{{ expanded === log.id ? '收起' : '详情' }}</button></td>
           </tr>
           <tr v-if="expanded === log.id" class="request-detail-row">
-            <td colspan="10">
+            <td colspan="8">
               <div class="request-detail">
                 <div class="detail-grid">
                   <div><span>请求分类</span><strong>{{ labels[log.category] || log.category }}</strong></div>
