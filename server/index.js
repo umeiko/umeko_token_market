@@ -85,6 +85,7 @@ app.setErrorHandler((error, request, reply) => {
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || '0.0.0.0';
 const shutdown = async () => {
+  clearInterval(gateway.blockedCleanup);
   tunnel.close();
   await app.close();
   db.close();

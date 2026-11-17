@@ -102,6 +102,18 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_logs(created_at);
   CREATE INDEX IF NOT EXISTS idx_usage_key ON usage_logs(key_id, created_at);
+  CREATE TABLE IF NOT EXISTS blocked_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT NOT NULL UNIQUE,
+    key_id INTEGER REFERENCES api_keys(id) ON DELETE SET NULL,
+    provider_id INTEGER REFERENCES providers(id) ON DELETE SET NULL,
+    model TEXT NOT NULL DEFAULT '',
+    ip TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    headers_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_blocked_created ON blocked_requests(created_at);
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL

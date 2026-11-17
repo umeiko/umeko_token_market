@@ -19,6 +19,8 @@ export class Gateway {
     this.keyActivity = new Map();
     this.providerActivity = new Map();
     this.rateWindows = new Map();
+    this.blockedCleanup = setInterval(() => this.cleanupBlockedRequests(), 60 * 60 * 1000);
+    this.blockedCleanup.unref();
   }
 
   authenticate(header) {
@@ -143,6 +145,50 @@ export class Gateway {
     });
   }
 
+  cleanupBlockedRequests() {
+    db.prepare("DELETE FROM blocked_requests WHERE created_at < datetime('now', '-5 hours')").run();
+  }
+
+  recordBlockedRequest(request, key, model) {
+    this.cleanupBlockedRequests();
+    const headers = Object.fromEntries(Object.entries(request.headers).map(([name, value]) => [
+      name,
+      ['authorization', 'x-api-key', 'cookie'].includes(name.toLowerCase()) ? '[redacted]' : value,
+    ]));
+    db.prepare(`INSERT INTO blocked_requests(request_id, key_id, provider_id, model, ip, user_agent, headers_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(crypto.randomUUID(), key.id, model.provider_id, model.name, request.ip, String(request.headers['user-agent'] || ''), JSON.stringify(headers));
+  }
+
+  rejectClient(request, reply, key, model, anthropic) {
+    this.recordBlockedRequest(request, key, model);
+    this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: 403, latency: 0, error: '客户端 User-Agent 不匹配' });
+    const text = '请使用umeko-desktop来提问吧';
+    const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '')}`;
+    const created = Math.floor(Date.now() / 1000);
+    let payload;
+    if (anthropic) {
+      const events = [
+        ['message_start', { type: 'message_start', message: { id: `msg_${id}`, type: 'message', role: 'assistant', model: model.name, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } }],
+        ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],
+        ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }],
+        ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+        ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 0 } }],
+        ['message_stop', { type: 'message_stop' }],
+      ];
+      payload = events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('');
+    } else {
+      const chunk = (delta, finishReason) => {
+        const data = { id, object: 'chat.completion.chunk', created, model: model.name, choices: [{ index: 0, delta, finish_reason: finishReason }] };
+        return `data: ${JSON.stringify(data)}\n\n`;
+      };
+      payload = chunk({ role: 'assistant', content: text }, null) + chunk({}, 'stop') + 'data: [DONE]\n\n';
+    }
+    return reply.code(200).type('text/event-stream; charset=utf-8')
+      .header('cache-control', 'no-cache').header('x-accel-buffering', 'no')
+      .send(payload);
+  }
+
   async proxy(request, reply, format = 'openai') {
     const anthropic = format === 'anthropic';
     const authorization = request.headers.authorization || (request.headers['x-api-key'] ? `Bearer ${request.headers['x-api-key']}` : '');
@@ -154,7 +200,12 @@ export class Gateway {
     const modelName = source.model || '';
     if (!modelName) throw Object.assign(new Error('请求中缺少 model'), { statusCode: 400 });
     const model = this.selectProvider(modelName, key);
-    this.validateClient(model, String(request.headers['user-agent'] || ''));
+    try {
+      this.validateClient(model, String(request.headers['user-agent'] || ''));
+    } catch (error) {
+      if (error.customResponse) return this.rejectClient(request, reply, key, model, anthropic);
+      throw error;
+    }
     const release = this.reserve(key);
     const releaseProvider = this.reserveProvider(model.provider_id);
     const startedAt = Date.now();

@@ -258,6 +258,10 @@ Content-Type: application/json
 
 替换指定 Key 的凭据，保留名称、额度和限流配置。旧 Key 立即失效，新完整 Key 仅返回一次，用于管理员复制 Base URL、Model ID 和接入环境变量。
 
+### GET /api/admin/blocked
+
+返回最近 5 小时的客户端拦截记录，包含模型、Key、供应商、IP、User-Agent 和实际请求头。每小时自动清理，Authorization、x-api-key 和 Cookie 始终脱敏。
+
 ## 设置与密码
 
 ### GET /api/admin/settings

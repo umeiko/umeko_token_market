@@ -404,6 +404,16 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     return { ok: true };
   });
 
+  app.get('/api/admin/blocked', { preHandler: requireAdmin }, async () => {
+    gateway.cleanupBlockedRequests();
+    return {
+      logs: db.prepare(`SELECT b.*, k.name key_name, p.name provider_name FROM blocked_requests b
+        LEFT JOIN api_keys k ON k.id = b.key_id LEFT JOIN providers p ON p.id = b.provider_id
+        WHERE b.created_at >= datetime('now', '-5 hours') ORDER BY b.id DESC LIMIT 200`).all()
+        .map((log) => ({ ...log, headers: JSON.parse(log.headers_json) })),
+    };
+  });
+
   app.get('/api/admin/settings', { preHandler: requireAdmin }, async () => ({ settings: getSettings() }));
   app.patch('/api/admin/settings', { preHandler: requireAdmin }, async (request) => {
     const { site_name, request_timeout_ms } = request.body || {};
