@@ -79,6 +79,7 @@ db.exec(`
     allowed_models TEXT NOT NULL DEFAULT '[]',
     client_mode TEXT NOT NULL DEFAULT 'regex',
     client_pattern TEXT NOT NULL DEFAULT '',
+    client_error_message TEXT NOT NULL DEFAULT '请使用umeko-desktop来提问吧',
     token_quota INTEGER NOT NULL DEFAULT 0,
     budget_quota_micros INTEGER NOT NULL DEFAULT 0,
     rpm_limit INTEGER NOT NULL DEFAULT 60,
@@ -149,6 +150,7 @@ addColumn('api_keys', 'key_iv', "TEXT NOT NULL DEFAULT ''");
 addColumn('api_keys', 'key_tag', "TEXT NOT NULL DEFAULT ''");
 addColumn('api_keys', 'client_mode', "TEXT NOT NULL DEFAULT 'regex'");
 addColumn('api_keys', 'client_pattern', "TEXT NOT NULL DEFAULT ''");
+addColumn('api_keys', 'client_error_message', "TEXT NOT NULL DEFAULT '请使用umeko-desktop来提问吧'");
 addColumn('api_keys', 'quota_5h', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('api_keys', 'quota_week', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('api_keys', 'allow_user_apply', 'INTEGER NOT NULL DEFAULT 0');

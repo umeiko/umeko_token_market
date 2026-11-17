@@ -151,9 +151,8 @@ export class Gateway {
     db.prepare("UPDATE usage_logs SET ip = '', headers_json = '{}' WHERE created_at < datetime('now', '-5 hours') AND (ip <> '' OR headers_json <> '{}')").run();
   }
 
-  rejectClient(request, reply, key, model, anthropic) {
+  rejectClient(request, reply, key, model, anthropic, text) {
     this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: 200, latency: 0, error: '客户端 User-Agent 不匹配，已返回客户端提示流', request, category: 'client_mismatch' });
-    const text = '请使用umeko-desktop来提问吧';
     const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '')}`;
     const created = Math.floor(Date.now() / 1000);
     let payload;
@@ -210,7 +209,7 @@ export class Gateway {
     try {
       this.validateClient(key, String(request.headers['user-agent'] || ''));
     } catch (error) {
-      if (error.customResponse) return this.rejectClient(request, reply, key, model, anthropic);
+      if (error.customResponse) return this.rejectClient(request, reply, key, model, anthropic, error.customResponse.message);
       this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: error.statusCode || 400, latency: 0, error: error.message, request, category: 'request_error' });
       throw error;
     }

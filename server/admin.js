@@ -19,6 +19,12 @@ const allowedModels = (value) => {
     return Array.isArray(models) ? models.filter((model) => typeof model === 'string').slice(0, 100) : [];
   } catch { return []; }
 };
+const clientErrorMessage = (value, fallback = '请使用umeko-desktop来提问吧') => {
+  const message = String(value ?? fallback).trim();
+  if (!message) throw badRequest('请填写客户端不匹配时返回的提示文字');
+  if (message.length > 2000) throw badRequest('客户端提示文字不能超过 2000 个字符');
+  return message;
+};
 
 function keyView(row, gateway) {
   return {
@@ -311,15 +317,16 @@ export async function adminRoutes(app, { tunnel, gateway }) {
   app.post('/api/admin/keys', { preHandler: requireAdmin }, async (request) => {
     const body = request.body || {};
     if (!body.name?.trim()) throw badRequest('请填写 Key 名称');
+    validateClientConfig(body);
     const credentials = createApiKey();
     const encrypted = encryptProviderKey(credentials.token);
     const result = db.prepare(`INSERT INTO api_keys
-      (name, key_hash, key_prefix, key_ciphertext, key_iv, key_tag, allowed_models, client_mode, client_pattern,
+      (name, key_hash, key_prefix, key_ciphertext, key_iv, key_tag, allowed_models, client_mode, client_pattern, client_error_message,
        token_quota, budget_quota_micros, quota_5h, quota_week,
        allow_user_apply, rpm_limit, concurrency_limit, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(body.name.trim(), credentials.hash, credentials.prefix, encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag,
-        JSON.stringify(allowedModels(body.allowed_models)), body.client_mode || 'regex', body.client_pattern || '', Math.max(0, number(body.token_quota)),
+        JSON.stringify(allowedModels(body.allowed_models)), body.client_mode || 'regex', body.client_pattern || '', clientErrorMessage(body.client_error_message), Math.max(0, number(body.token_quota)),
         Math.round(Math.max(0, number(body.budget_quota)) * 1e6),
         Math.max(0, Math.floor(number(body.quota_5h))), Math.max(0, Math.floor(number(body.quota_week))),
         bool(body.allow_user_apply), Math.max(0, number(body.rpm_limit, 60)),
@@ -331,13 +338,14 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     const current = db.prepare('SELECT * FROM api_keys WHERE id = ?').get(request.params.id);
     if (!current) throw badRequest('Key 不存在');
     const body = request.body || {};
+    validateClientConfig({ ...current, ...body });
     if (body.reset_usage) {
       db.prepare("UPDATE api_keys SET used_tokens = 0, used_cost_micros = 0, quota_reset_5h_at = datetime('now'), quota_reset_week_at = datetime('now') WHERE id = ?").run(current.id);
     }
-    db.prepare(`UPDATE api_keys SET name = ?, allowed_models = ?, client_mode = ?, client_pattern = ?, token_quota = ?, budget_quota_micros = ?, quota_5h = ?, quota_week = ?,
+    db.prepare(`UPDATE api_keys SET name = ?, allowed_models = ?, client_mode = ?, client_pattern = ?, client_error_message = ?, token_quota = ?, budget_quota_micros = ?, quota_5h = ?, quota_week = ?,
       allow_user_apply = ?, rpm_limit = ?, concurrency_limit = ?, enabled = ?, expires_at = ? WHERE id = ?`).run(
       body.name?.trim() || current.name, JSON.stringify(allowedModels(body.allowed_models === undefined ? current.allowed_models : body.allowed_models)),
-      body.client_mode ?? current.client_mode, body.client_pattern ?? current.client_pattern, Math.max(0, number(body.token_quota, current.token_quota)),
+      body.client_mode ?? current.client_mode, body.client_pattern ?? current.client_pattern, clientErrorMessage(body.client_error_message, current.client_error_message), Math.max(0, number(body.token_quota, current.token_quota)),
       Math.round(Math.max(0, number(body.budget_quota, current.budget_quota_micros / 1e6)) * 1e6),
       Math.max(0, Math.floor(number(body.quota_5h, current.quota_5h))), Math.max(0, Math.floor(number(body.quota_week, current.quota_week))),
       body.allow_user_apply === undefined ? current.allow_user_apply : bool(body.allow_user_apply),

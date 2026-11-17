@@ -244,7 +244,8 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
 .panel-form { padding: 21px; }
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field label, .field-label { color: #436570; font-size: 11px; font-weight: 500; }
-.field input, .field select { font-size: 12px; }
+.field input, .field select, .field textarea { font-size: 12px; }
+.field textarea { min-height: 76px; resize: vertical; line-height: 1.6; }
 .help-text { color: #869ba4; font-size: 9px; line-height: 1.6; }
 .form-grid { display: grid; gap: 15px; }
 .form-grid.two { grid-template-columns: 1fr 1fr; }

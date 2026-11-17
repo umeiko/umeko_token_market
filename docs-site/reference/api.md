@@ -244,6 +244,9 @@ Content-Type: application/json
 {
   "name": "Alice 的应用",
   "allowed_models": ["qwen3-32b"],
+  "client_mode": "regex",
+  "client_pattern": "^Umeko-Desktop",
+  "client_error_message": "当前客户端是 {{userAgent}}，请改用 Umeko Desktop。",
   "token_quota": 1000000,
   "budget_quota": 10,
   "quota_5h": 2000000,
@@ -255,7 +258,11 @@ Content-Type: application/json
 }
 ```
 
-`quota_5h` 和 `quota_week` 按当前 Key 的滚动窗口日志限制。`allow_user_apply=true` 时，注册用户可按该策略申请自己的新 Key，不会获得原始 Key。额度为 `0` 表示不限制，`expires_at` 可省略或为 `null`。成功返回：
+`quota_5h` 和 `quota_week` 按当前 Key 的滚动窗口日志限制。`allow_user_apply=true` 时，注册用户可按该策略申请自己的新 Key，不会获得原始 Key。额度为 `0` 表示不限制，`expires_at` 可省略或为 `null`。
+
+`client_pattern` 为空时不限制 User-Agent；`client_mode` 支持 `regex` 和 `template`。不匹配时，OpenAI 与 Anthropic 入口均以 SSE 返回 `client_error_message`，支持 `{{userAgent}}` 占位符，长度为 1–2000 字。省略该字段时使用“请使用umeko-desktop来提问吧”，已有 Key 升级后也保留此默认值。
+
+成功返回：
 
 ```json
 { "id": 1, "key": "umo-sk-..." }
