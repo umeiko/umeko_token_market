@@ -166,7 +166,7 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
 | `status` | 按 HTTP 状态筛选：`success` 为 200–399，`error` 为其他状态 |
 | `category` | 可选请求分类，见下表 |
 
-每页 30 条，返回 `logs`、`total`、`page`、`pages`。每条日志包含请求 ID、模型、Token、费用、延迟、状态、错误原因，以及 `category`、`ip`、`headers_json` 和解析后的 `headers`。不保存提示词与模型输出正文。
+每页 30 条，返回 `logs`、`total`、`page`、`pages`。每条日志包含请求 ID、模型、Token、费用、延迟、状态、错误原因，以及 `category`、`ip`、`ip_region`、`headers_json` 和解析后的 `headers`。`ip_region` 为公网 IP 的国家、省/州、城市，或“内网地址”“本地地址”；查询进行中或失败时为空。不保存提示词与模型输出正文。
 
 | `category` | 含义 |
 | --- | --- |
@@ -180,7 +180,7 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
 | `upstream_error` | 其他上游错误或连接中断 |
 | `error` | 其他错误，或旧版日志未记录分类 |
 
-请求 IP 和请求头详情保留 5 小时，服务启动时和每小时自动清理；Token、费用等用量统计继续保留。`Authorization`、`x-api-key` 和 `Cookie` 入库前始终替换为 `[redacted]`。
+请求 IP、IP 地区和请求头详情保留 5 小时，服务启动时和每小时自动清理；Token、费用等用量统计继续保留。公网归属地异步查询并缓存，内网地址不会外发查询。`Authorization`、`x-api-key` 和 `Cookie` 入库前始终替换为 `[redacted]`。
 
 ## 供应商管理
 

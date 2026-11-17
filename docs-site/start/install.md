@@ -22,6 +22,7 @@
 | `COOKIE_SECURE` | `false` | HTTPS 部署应设为 `true` |
 | `TRUST_PROXY` | `false` | 位于可信反向代理后时设为 `true` |
 | `LOG_LEVEL` | `info` | Fastify 日志级别 |
+| `IP_GEO_LOOKUP_URL` | `https://ipwho.is/{ip}` | 公网 IP 归属地查询 URL，`{ip}` 会替换为编码后的 IP；仅公网地址会发起查询 |
 | `SMTP_HOST` | 空 | SMTP 服务器，生产环境发送验证码所必需 |
 | `SMTP_PORT` | `587` | SMTP 端口 |
 | `SMTP_SECURE` | `false` | 是否使用 SMTPS，465 端口通常设为 `true` |

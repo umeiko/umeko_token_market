@@ -105,6 +105,7 @@ db.exec(`
     latency_ms INTEGER NOT NULL DEFAULT 0,
     category TEXT NOT NULL DEFAULT 'error',
     ip TEXT NOT NULL DEFAULT '',
+    ip_region TEXT NOT NULL DEFAULT '',
     headers_json TEXT NOT NULL DEFAULT '{}',
     error TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -141,6 +142,7 @@ addColumn('users', 'password_hash', 'TEXT');
 addColumn('users', 'salt', 'TEXT');
 addColumn('usage_logs', 'category', "TEXT NOT NULL DEFAULT 'error'");
 addColumn('usage_logs', 'ip', "TEXT NOT NULL DEFAULT ''");
+addColumn('usage_logs', 'ip_region', "TEXT NOT NULL DEFAULT ''");
 addColumn('usage_logs', 'headers_json', "TEXT NOT NULL DEFAULT '{}'");
 db.prepare("UPDATE usage_logs SET category = CASE WHEN status BETWEEN 200 AND 399 THEN 'success' ELSE 'error' END WHERE category = 'error'").run();
 addColumn('api_keys', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');

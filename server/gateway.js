@@ -3,6 +3,7 @@ import { db, getKeyWindowUsage, getQuotaResetAt, getUserUsage, transaction } fro
 import { forwardDirectProvider } from './directProvider.js';
 import { bearerToken, hashToken } from './security.js';
 import { upstreamErrorStream, withAdminContact } from './errors.js';
+import { IpRegionResolver } from './ipRegion.js';
 
 const estimateTokens = (text) => Math.max(1, Math.ceil(String(text).length / 4));
 const asOpenAIError = (message, type = 'api_error') => ({ error: { message, type } });
@@ -36,6 +37,7 @@ export class Gateway {
     this.keyActivity = new Map();
     this.providerActivity = new Map();
     this.rateWindows = new Map();
+    this.ipRegions = new IpRegionResolver();
     this.cleanupBlockedRequests();
     this.blockedCleanup = setInterval(() => this.cleanupBlockedRequests(), 60 * 60 * 1000);
     this.blockedCleanup.unref();
@@ -169,7 +171,7 @@ export class Gateway {
 
   cleanupBlockedRequests() {
     db.prepare("DELETE FROM blocked_requests WHERE created_at < datetime('now', '-5 hours')").run();
-    db.prepare("UPDATE usage_logs SET ip = '', headers_json = '{}' WHERE created_at < datetime('now', '-5 hours') AND (ip <> '' OR headers_json <> '{}')").run();
+    db.prepare("UPDATE usage_logs SET ip = '', ip_region = '', headers_json = '{}' WHERE created_at < datetime('now', '-5 hours') AND (ip <> '' OR ip_region <> '' OR headers_json <> '{}')").run();
   }
 
   rejectClient(request, reply, key, model, anthropic, text) {
@@ -352,20 +354,30 @@ export class Gateway {
       ['authorization', 'x-api-key', 'cookie'].includes(name.toLowerCase()) ? '[redacted]' : value,
     ])) : {};
     const resultCategory = category || (status >= 200 && status < 400 ? 'success' : 'error');
+    const ip = request?.ip || '';
+    let logId = null;
     try {
       transaction(() => {
-        db.prepare(`INSERT OR IGNORE INTO usage_logs
+        const result = db.prepare(`INSERT OR IGNORE INTO usage_logs
           (request_id, key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens, cost_micros, status, latency_ms, category, ip, headers_json, error)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(requestId, key.id || null, model.provider_id || null, model.name, prompt, completion, total, cost, status, latency, resultCategory, request?.ip || '', JSON.stringify(headers), error);
+          .run(requestId, key.id || null, model.provider_id || null, model.name, prompt, completion, total, cost, status, latency, resultCategory, ip, JSON.stringify(headers), error);
+        if (result.changes) logId = Number(result.lastInsertRowid);
         if (key.id) {
           db.prepare(`UPDATE api_keys SET used_tokens = used_tokens + ?, used_cost_micros = used_cost_micros + ?,
             last_used_at = datetime('now') WHERE id = ?`).run(total, cost, key.id);
         }
       });
+      if (logId) this.fillIpRegion(logId, ip).catch(() => {});
     } catch (databaseError) {
       console.error('Failed to record usage', databaseError);
     }
+  }
+
+  async fillIpRegion(logId, ip) {
+    if (!ip) return;
+    const region = await this.ipRegions.resolve(ip);
+    if (region) db.prepare('UPDATE usage_logs SET ip_region = ? WHERE id = ? AND ip = ?').run(region, logId, ip);
   }
 
   activeForKey(keyId) { return this.keyActivity.get(Number(keyId)) || 0; }
