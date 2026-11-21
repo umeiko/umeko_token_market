@@ -91,15 +91,32 @@ function anthropicStream(stream, requestId) {
     output.push(null);
   });
   stream.on('error', (error) => output.destroy(error));
+  output.on('close', () => {
+    if (!stream.readableEnded && !stream.destroyed) stream.destroy();
+  });
   return output;
 }
 
 export async function forwardDirectProvider(provider, { path, body, timeoutMs, signal }) {
   const requestId = randomUUID();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onAbort = () => controller.abort();
+  let cleaned = false;
+  const timer = setTimeout(() => controller.abort(new Error('上游响应超时')), timeoutMs);
+  const onAbort = () => controller.abort(new Error('客户端已断开'));
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+  };
+  const trackStream = (stream) => {
+    stream.once('end', cleanup);
+    stream.once('error', cleanup);
+    stream.once('close', cleanup);
+    return stream;
+  };
   signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   const anthropic = provider.provider_type === 'anthropic';
   const normalizedPath = path.startsWith('/v1/') ? path : `/v1/${path}`;
   if (anthropic && normalizedPath !== '/v1/chat/completions') throw invalid('Anthropic 直连当前仅支持聊天接口');
@@ -119,25 +136,27 @@ export async function forwardDirectProvider(provider, { path, body, timeoutMs, s
       method: 'POST', headers, body: JSON.stringify(targetBody), signal: controller.signal,
     });
   } catch (error) {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', onAbort);
+    cleanup();
     throw Object.assign(new Error(`云端供应商请求失败：${error.message}`), { statusCode: 502 });
   }
-  clearTimeout(timer);
-  signal?.removeEventListener('abort', onAbort);
   const responseHeaders = {};
   response.headers.forEach((value, key) => {
     if (!['content-length', 'content-encoding', 'transfer-encoding', 'connection'].includes(key)) responseHeaders[key] = value;
   });
-  if (!anthropic) return { requestId, status: response.status, headers: responseHeaders, stream: Readable.fromWeb(response.body) };
+  if (!anthropic) return { requestId, status: response.status, headers: responseHeaders, stream: trackStream(Readable.fromWeb(response.body)) };
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
+    let data;
+    try { data = await response.json().catch(() => ({})); } finally { cleanup(); }
     return {
       requestId, status: response.status, headers: { 'content-type': 'application/json' },
       stream: Readable.from([JSON.stringify({ error: { message: data.error?.message || `Anthropic 返回 HTTP ${response.status}`, type: 'api_error' } })]),
     };
   }
-  if (targetBody.stream) return { requestId, status: response.status, headers: { 'content-type': 'text/event-stream' }, stream: anthropicStream(Readable.fromWeb(response.body), requestId) };
-  const data = await response.json();
+  if (targetBody.stream) {
+    const stream = trackStream(Readable.fromWeb(response.body));
+    return { requestId, status: response.status, headers: { 'content-type': 'text/event-stream' }, stream: anthropicStream(stream, requestId) };
+  }
+  let data;
+  try { data = await response.json(); } finally { cleanup(); }
   return { requestId, status: response.status, headers: { 'content-type': 'application/json' }, stream: Readable.from([JSON.stringify(anthropicResponse(data, requestId))]) };
 }

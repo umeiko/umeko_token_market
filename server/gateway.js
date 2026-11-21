@@ -341,6 +341,9 @@ export class Gateway {
         resolve({ usage, error: upstreamError.slice(0, 2000) });
       });
       stream.on('error', reject);
+      stream.on('close', () => {
+        if (!stream.readableEnded) reject(new Error('上游响应流在完成前关闭'));
+      });
     });
   }
 
