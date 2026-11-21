@@ -128,7 +128,7 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
       </form>
       <div class="login-divider"><span>或使用身份 Key</span></div>
       <div class="identity-dropzone" :class="{ dragging: identityDragging, busy }" role="button" tabindex="0" @click="!busy && identityInput.click()" @keydown.enter.prevent="!busy && identityInput.click()" @keydown.space.prevent="!busy && identityInput.click()" @dragover.prevent="identityDragging = true" @dragleave.prevent="identityDragging = false" @drop.prevent="dropIdentity">
-        <input ref="identityInput" class="visually-hidden" type="file" accept=".umeko-key,application/json" :disabled="busy" @change="identityLogin" />
+        <input ref="identityInput" class="visually-hidden" type="file" aria-label="选择 Umeko 身份 Key 文件" :disabled="busy" @change="identityLogin" />
         <UiIcon name="key" :size="23" />
         <strong>{{ busy ? '正在验证身份文件…' : '拖入身份 Key' }}</strong>
         <span>或点击从本机选择文件</span>
