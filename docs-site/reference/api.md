@@ -258,7 +258,7 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
 
 ### GET /api/admin/keys
 
-返回 Key 列表、累计用量、当前并发和额度，不返回 Key 哈希或完整明文。
+返回 Key 列表、累计用量、当前并发和额度，不返回 Key 哈希或完整明文。`usage_5h` 和 `usage_week` 分别表示当前五小时、七天滚动窗口内已使用的 Token，计算时包含对应的手动重置起算时间。
 
 ### POST /api/admin/keys
 

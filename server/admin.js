@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { changePassword, db, getSettings, getUserUsage, setSetting, verifyAdmin } from './db.js';
+import { changePassword, db, getKeyWindowUsage, getSettings, getUserUsage, setSetting, verifyAdmin } from './db.js';
 import { consumeRateLimit, createAgentToken, createApiKey, publicProvider, sessionExpired, touchSession, verifySameOrigin } from './security.js';
 import { decryptProviderKey, encryptProviderKey } from './providerCrypto.js';
 import { parsePublicKey, verifySshSignature } from './sshAuth.js';
@@ -37,6 +37,8 @@ function keyView(row, gateway) {
     enabled: Boolean(row.enabled),
     allow_user_apply: Boolean(row.allow_user_apply),
     active: gateway.activeForKey(row.id),
+    usage_5h: getKeyWindowUsage(row.id, '-5 hours', row.quota_reset_5h_at),
+    usage_week: getKeyWindowUsage(row.id, '-7 days', row.quota_reset_week_at),
     used_cost: row.used_cost_micros / 1e6,
     budget_quota: row.budget_quota_micros / 1e6,
   };
