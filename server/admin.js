@@ -246,8 +246,8 @@ export async function adminRoutes(app, { tunnel, gateway }) {
         provider_type, body.base_url || '', encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag, encrypted.api_key_prefix,
         body.client_mode || 'regex', body.client_pattern || '', body.client_error_field || 'message', body.client_error_message || '', body.client_error_code || '');
     const providerId = Number(result.lastInsertRowid);
-    const insert = db.prepare('INSERT INTO models(provider_id, name, upstream_name, input_price, output_price) VALUES (?, ?, ?, ?, ?)');
-    for (const model of models) insert.run(providerId, model.name.trim(), model.upstream_name?.trim() || model.name.trim(), Math.max(0, number(model.input_price)), Math.max(0, number(model.output_price)));
+    const insert = db.prepare('INSERT INTO models(provider_id, name, upstream_name, context_length, input_price, output_price) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const model of models) insert.run(providerId, model.name.trim(), model.upstream_name?.trim() || model.name.trim(), Math.max(0, Math.floor(number(model.context_length))), Math.max(0, number(model.input_price)), Math.max(0, number(model.output_price)));
     return { id: providerId, token: provider_type === 'tunnel' ? credentials.token : null };
   });
 
@@ -286,11 +286,11 @@ export async function adminRoutes(app, { tunnel, gateway }) {
   });
 
   app.post('/api/admin/providers/:id/models', { preHandler: requireAdmin }, async (request) => {
-    const { name, upstream_name, input_price = 0, output_price = 0 } = request.body || {};
+    const { name, upstream_name, context_length = 0, input_price = 0, output_price = 0 } = request.body || {};
     if (!name?.trim()) throw badRequest('请填写模型名称');
     try {
-      const result = db.prepare('INSERT INTO models(provider_id, name, upstream_name, input_price, output_price) VALUES (?, ?, ?, ?, ?)')
-        .run(request.params.id, name.trim(), upstream_name?.trim() || name.trim(), Math.max(0, number(input_price)), Math.max(0, number(output_price)));
+      const result = db.prepare('INSERT INTO models(provider_id, name, upstream_name, context_length, input_price, output_price) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(request.params.id, name.trim(), upstream_name?.trim() || name.trim(), Math.max(0, Math.floor(number(context_length))), Math.max(0, number(input_price)), Math.max(0, number(output_price)));
       return { id: Number(result.lastInsertRowid) };
     } catch { throw badRequest('该供应商下已存在同名模型'); }
   });
@@ -298,9 +298,10 @@ export async function adminRoutes(app, { tunnel, gateway }) {
   app.patch('/api/admin/models/:id', { preHandler: requireAdmin }, async (request) => {
     const current = db.prepare('SELECT * FROM models WHERE id = ?').get(request.params.id);
     if (!current) throw badRequest('模型不存在');
-    const { name, upstream_name, input_price, output_price, enabled } = request.body || {};
-    db.prepare('UPDATE models SET name = ?, upstream_name = ?, input_price = ?, output_price = ?, enabled = ? WHERE id = ?').run(
+    const { name, upstream_name, context_length, input_price, output_price, enabled } = request.body || {};
+    db.prepare('UPDATE models SET name = ?, upstream_name = ?, context_length = ?, input_price = ?, output_price = ?, enabled = ? WHERE id = ?').run(
       name?.trim() || current.name, upstream_name === undefined ? current.upstream_name : upstream_name.trim() || current.name,
+      Math.max(0, Math.floor(number(context_length, current.context_length))),
       Math.max(0, number(input_price, current.input_price)),
       Math.max(0, number(output_price, current.output_price)), enabled === undefined ? current.enabled : bool(enabled), current.id,
     );

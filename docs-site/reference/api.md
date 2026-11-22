@@ -43,12 +43,12 @@
 {
   "object": "list",
   "data": [
-    { "id": "qwen3-32b", "object": "model", "created": 0, "owned_by": "umeko-relay" }
+    { "id": "qwen3-32b", "object": "model", "created": 0, "owned_by": "umeko-relay", "context_length": 262144 }
   ]
 }
 ```
 
-模型列表请求也参与 Key 的额度和 RPM 检查，但不写入推理用量日志。
+`context_length` 是管理员为模型配置的上下文 Token 数，未配置时为 `null`。模型列表请求也参与 Key 的额度和 RPM 检查，但不写入推理用量日志。
 
 ### POST /v1/*
 
@@ -196,7 +196,7 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
   "description": "可选描述",
   "max_concurrency": 4,
   "models": [
-    { "name": "qwen3-32b", "input_price": 2, "output_price": 6 }
+    { "name": "qwen3-32b", "context_length": 262144, "input_price": 2, "output_price": 6 }
   ]
 }
 ```
@@ -223,12 +223,12 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
   "client_error_code": "upgrade_client",
   "client_error_message": "请升级 Umeko 客户端",
   "models": [
-    { "name": "fast", "upstream_name": "gpt-4.1-mini", "input_price": 1, "output_price": 2 }
+    { "name": "fast", "upstream_name": "gpt-4.1-mini", "context_length": 128000, "input_price": 1, "output_price": 2 }
   ]
 }
 ```
 
-`provider_type` 支持 `tunnel`、`openai`、`anthropic`。`upstream_name` 是发送给上游的真实模型，`name` 是对外别名。客户端校验可使用 `regex` 或带 `*` 的 `template`。
+`provider_type` 支持 `tunnel`、`openai`、`anthropic`。`upstream_name` 是发送给上游的真实模型，`name` 是对外别名，`context_length` 是可选的上下文 Token 数，默认 `0` 表示未声明。客户端校验可使用 `regex` 或带 `*` 的 `template`。
 
 ### PATCH /api/admin/providers/:id
 
@@ -241,14 +241,14 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
 ### POST /api/admin/providers/:id/models
 
 ```json
-{ "name": "new-model", "input_price": 1, "output_price": 3 }
+{ "name": "new-model", "context_length": 128000, "input_price": 1, "output_price": 3 }
 ```
 
 同一供应商下模型名唯一。
 
 ### PATCH /api/admin/models/:id
 
-可更新 `name`、`input_price`、`output_price`、`enabled`。
+可更新 `name`、`context_length`、`input_price`、`output_price`、`enabled`。
 
 ### DELETE /api/admin/models/:id
 

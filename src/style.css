@@ -183,7 +183,7 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
 .danger-text { color: var(--danger); }
 .model-table { border-top: 1px solid var(--line-soft); background: #fcfdfd; }
 .model-table-head { padding: 9px 16px; display: flex; align-items: center; justify-content: space-between; color: #6f8993; font-size: 10px; }
-.model-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(140px, 1.15fr) minmax(105px, .8fr) minmax(105px, .8fr) 45px 30px; align-items: center; gap: 10px; padding: 7px 16px; }
+.model-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(140px, 1.15fr) minmax(105px, .8fr) minmax(105px, .8fr) minmax(105px, .8fr) 45px 30px; align-items: center; gap: 10px; padding: 7px 16px; }
 .model-labels { color: #93a5ac; font-size: 8px; padding-top: 0; }
 .model-row input { height: 31px; padding: 5px 8px; font-size: 10px; background: #fff; }
 .switch { width: 30px; min-height: 17px; height: 17px; border-radius: 20px; padding: 2px; background: #cbd9de; border: 0; }
@@ -445,7 +445,7 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
 }
 
 .form-grid.three { grid-template-columns: repeat(3, 1fr); }
-.model-form-row.extended { grid-template-columns: 1fr 1.2fr .7fr .7fr 32px; }
+.model-form-row.extended { grid-template-columns: 1fr 1.2fr .8fr .7fr .7fr 32px; }
 .login-methods { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; margin-bottom: 20px; background: #edf4f6; border-radius: 8px; }
 .login-methods button { border: 0; min-height: 32px; background: transparent; color: var(--muted); font-size: 11px; }
 .login-methods button.active { color: var(--accent); background: #fff; box-shadow: 0 1px 5px #17394512; }

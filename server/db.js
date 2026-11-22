@@ -34,6 +34,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    context_length INTEGER NOT NULL DEFAULT 0,
     input_price REAL NOT NULL DEFAULT 0,
     output_price REAL NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1,
@@ -172,6 +173,7 @@ addColumn('providers', 'client_error_field', "TEXT NOT NULL DEFAULT 'message'");
 addColumn('providers', 'client_error_message', "TEXT NOT NULL DEFAULT ''");
 addColumn('providers', 'client_error_code', "TEXT NOT NULL DEFAULT ''");
 addColumn('models', 'upstream_name', "TEXT NOT NULL DEFAULT ''");
+addColumn('models', 'context_length', 'INTEGER NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, created_at)');
 db.exec(`CREATE TABLE IF NOT EXISTS admin_authorized_keys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

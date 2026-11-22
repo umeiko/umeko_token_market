@@ -110,11 +110,11 @@ export class Gateway {
 
   models(key) {
     const allowed = allowedModels(key);
-    return db.prepare(`SELECT m.id, m.name, m.provider_id, p.provider_type, p.base_url FROM models m
+    return db.prepare(`SELECT m.id, m.name, m.context_length, m.provider_id, p.provider_type, p.base_url FROM models m
       JOIN providers p ON p.id = m.provider_id
       WHERE m.enabled = 1 AND p.enabled = 1 ORDER BY m.name`).all()
       .filter((model) => this.providerOnline(model) && (!allowed.length || allowed.includes(model.name)))
-      .map((model) => ({ id: model.name, object: 'model', created: 0, owned_by: 'umeko-relay' }));
+      .map((model) => ({ id: model.name, object: 'model', created: 0, owned_by: 'umeko-relay', context_length: model.context_length || null }));
   }
 
   selectProvider(modelName, key) {
