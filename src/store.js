@@ -1,6 +1,7 @@
-import { reactive } from 'vue';
+import { reactive, ref } from 'vue';
 
 export const toasts = reactive([]);
+export const keyLogFilter = ref('');
 export function notify(message, bad = false) {
   const id = Date.now() + Math.random();
   toasts.push({ id, message, bad });

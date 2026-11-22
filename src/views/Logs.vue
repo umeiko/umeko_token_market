@@ -1,6 +1,7 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, formatDate, formatNumber } from '../api.js';
+import { keyLogFilter } from '../store.js';
 import EmptyState from '../components/EmptyState.vue';
 import UiIcon from '../components/UiIcon.vue';
 
@@ -23,9 +24,15 @@ async function load() {
   total.value = data.total;
   loading.value = false;
 }
-function apply() { page.value = 1; expanded.value = null; load(); }
+function apply() { keyLogFilter.value = ''; page.value = 1; expanded.value = null; load(); }
 function move(delta) { page.value += delta; expanded.value = null; load(); }
+watch(keyLogFilter, (keyId) => {
+  if (!keyId) return;
+  filters.value.key_id = keyId;
+  apply();
+});
 onMounted(async () => {
+  if (keyLogFilter.value) filters.value.key_id = keyLogFilter.value;
   await load();
   const [k, p] = await Promise.all([api('GET', '/api/admin/keys'), api('GET', '/api/admin/providers')]);
   keys.value = k.keys;
