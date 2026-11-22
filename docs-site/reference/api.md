@@ -296,6 +296,8 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
 
 - `enabled`：启用或停发；
 - `expires_at`：修改或清空过期时间；
+- `reset_window: "5h"`：只重置五小时窗口起算点，累计 Token、费用和周窗口不变；
+- `reset_window: "week"`：只重置周窗口起算点，累计 Token、费用和五小时窗口不变；
 - `reset_usage: true`：累计 Token 和费用清零，并重置五小时/周起算点，历史日志保留。
 
 ### GET /api/admin/keys/:id/reveal

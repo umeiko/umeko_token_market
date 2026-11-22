@@ -341,6 +341,11 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     if (!current) throw badRequest('Key 不存在');
     const body = request.body || {};
     validateClientConfig({ ...current, ...body });
+    if (body.reset_window !== undefined) {
+      if (!['5h', 'week'].includes(body.reset_window)) throw badRequest('无效的重置范围');
+      const field = body.reset_window === '5h' ? 'quota_reset_5h_at' : 'quota_reset_week_at';
+      db.prepare(`UPDATE api_keys SET ${field} = datetime('now') WHERE id = ?`).run(current.id);
+    }
     if (body.reset_usage) {
       db.prepare("UPDATE api_keys SET used_tokens = 0, used_cost_micros = 0, quota_reset_5h_at = datetime('now'), quota_reset_week_at = datetime('now') WHERE id = ?").run(current.id);
     }

@@ -205,6 +205,8 @@ td small { display: block; font-size: 9px; margin-top: 3px; }
 .progress.amber i { background: #d5a04c; }
 .key-meta { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); color: #8a9da5; font-size: 8px; }
 .key-meta b { color: #5a7883; font-weight: 500; }
+.quota-reset-field { padding: 13px; border: 1px solid var(--line-soft); border-radius: 8px; background: #fafcfd; }
+.quota-reset-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 9px 0; }
 .billing-summary { display: grid; grid-template-columns: repeat(4, 1fr); background: #fff; border: 1px solid var(--line); border-radius: 11px; margin-bottom: 20px; box-shadow: var(--shadow); }
 .billing-summary article { padding: 20px; border-right: 1px solid var(--line-soft); }
 .billing-summary article:last-child { border: 0; }
