@@ -108,6 +108,7 @@ db.exec(`
     ip_region TEXT NOT NULL DEFAULT '',
     headers_json TEXT NOT NULL DEFAULT '{}',
     error TEXT NOT NULL DEFAULT '',
+    visible INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_logs(created_at);
@@ -144,6 +145,7 @@ addColumn('usage_logs', 'category', "TEXT NOT NULL DEFAULT 'error'");
 addColumn('usage_logs', 'ip', "TEXT NOT NULL DEFAULT ''");
 addColumn('usage_logs', 'ip_region', "TEXT NOT NULL DEFAULT ''");
 addColumn('usage_logs', 'headers_json', "TEXT NOT NULL DEFAULT '{}'");
+addColumn('usage_logs', 'visible', 'INTEGER NOT NULL DEFAULT 1');
 db.prepare("UPDATE usage_logs SET category = CASE WHEN status BETWEEN 200 AND 399 THEN 'success' ELSE 'error' END WHERE category = 'error'").run();
 addColumn('api_keys', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
 addColumn('api_keys', 'allowed_models', "TEXT NOT NULL DEFAULT '[]'");

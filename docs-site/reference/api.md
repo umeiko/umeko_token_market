@@ -180,7 +180,7 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
 | `upstream_error` | 其他上游错误或连接中断 |
 | `error` | 其他错误，或旧版日志未记录分类 |
 
-请求 IP、IP 地区和请求头详情保留 5 小时，服务启动时和每小时自动清理；Token、费用等用量统计继续保留。公网归属地异步查询并缓存，内网地址不会外发查询。`Authorization`、`x-api-key` 和 `Cookie` 入库前始终替换为 `[redacted]`。
+接口最多返回最近 300 条可见日志，最近 150 条始终处于保留范围内，所有可见日志的请求详情均不按时间过期。超出 300 条的旧日志及其 IP、地区、请求头、错误详情会从日志页面移除，Token、费用、状态和时间等统计字段继续用于计费与限额。公网归属地异步查询并缓存，内网地址不会外发查询。`Authorization`、`x-api-key` 和 `Cookie` 入库前始终替换为 `[redacted]`。
 
 ## 供应商管理
 
@@ -308,7 +308,7 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
 
 ### GET /api/admin/blocked（兼容接口）
 
-管理界面已统一使用 `/api/admin/usage`，不再有独立的拦截记录页面。此兼容接口仅返回最近 5 小时 `category=client_mismatch` 的记录，字段结构与统一日志一致。新集成请使用 `/api/admin/usage?category=client_mismatch`。
+管理界面已统一使用 `/api/admin/usage`，不再有独立的拦截记录页面。此兼容接口从最近 300 条可见日志中返回最多 200 条 `category=client_mismatch` 的记录，字段结构与统一日志一致。新集成请使用 `/api/admin/usage?category=client_mismatch`。
 
 ## 设置与密码
 

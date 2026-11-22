@@ -38,9 +38,9 @@ export class Gateway {
     this.providerActivity = new Map();
     this.rateWindows = new Map();
     this.ipRegions = new IpRegionResolver();
-    this.cleanupBlockedRequests();
-    this.blockedCleanup = setInterval(() => this.cleanupBlockedRequests(), 60 * 60 * 1000);
-    this.blockedCleanup.unref();
+    this.cleanupUsageLogs();
+    this.usageCleanup = setInterval(() => this.cleanupUsageLogs(), 60 * 60 * 1000);
+    this.usageCleanup.unref();
   }
 
   authenticate(header) {
@@ -169,9 +169,10 @@ export class Gateway {
     });
   }
 
-  cleanupBlockedRequests() {
+  cleanupUsageLogs() {
     db.prepare("DELETE FROM blocked_requests WHERE created_at < datetime('now', '-5 hours')").run();
-    db.prepare("UPDATE usage_logs SET ip = '', ip_region = '', headers_json = '{}' WHERE created_at < datetime('now', '-5 hours') AND (ip <> '' OR ip_region <> '' OR headers_json <> '{}')").run();
+    db.prepare(`UPDATE usage_logs SET visible = 0, ip = '', ip_region = '', headers_json = '{}', error = ''
+      WHERE visible = 1 AND id NOT IN (SELECT id FROM usage_logs WHERE visible = 1 ORDER BY id DESC LIMIT 300)`).run();
   }
 
   rejectClient(request, reply, key, model, anthropic, text) {
@@ -371,7 +372,10 @@ export class Gateway {
             last_used_at = datetime('now') WHERE id = ?`).run(total, cost, key.id);
         }
       });
-      if (logId) this.fillIpRegion(logId, ip).catch(() => {});
+      if (logId) {
+        this.cleanupUsageLogs();
+        this.fillIpRegion(logId, ip).catch(() => {});
+      }
     } catch (databaseError) {
       console.error('Failed to record usage', databaseError);
     }

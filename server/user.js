@@ -177,7 +177,7 @@ export async function userRoutes(app, { tunnel }) {
     const logs = db.prepare(`SELECT l.id, l.request_id, l.model, l.prompt_tokens, l.completion_tokens,
       l.total_tokens, l.cost_micros, l.status, l.latency_ms, l.created_at, k.key_prefix
       FROM usage_logs l JOIN api_keys k ON k.id = l.key_id
-      WHERE k.user_id = ? AND l.created_at >= datetime('now', '-1 hour')
+      WHERE k.user_id = ? AND l.created_at >= datetime('now', '-1 hour') AND l.visible = 1
       ORDER BY l.id DESC LIMIT 100`).all(userId);
     const models = db.prepare(`SELECT m.name, m.input_price, m.output_price, p.name provider_name, p.id provider_id,
       p.provider_type, p.base_url FROM models m JOIN providers p ON p.id = m.provider_id

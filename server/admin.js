@@ -196,7 +196,7 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     }
     const recent = db.prepare(`SELECT l.*, k.name key_name, p.name provider_name FROM usage_logs l
       LEFT JOIN api_keys k ON k.id = l.key_id LEFT JOIN providers p ON p.id = l.provider_id
-      ORDER BY l.id DESC LIMIT 8`).all();
+      WHERE l.visible = 1 ORDER BY l.id DESC LIMIT 8`).all();
     return { today: { ...today, cost: today.cost_micros / 1e6 }, totals: { ...totals, cost: totals.cost_micros / 1e6, online: tunnel.providers.size }, series, recent };
   });
 
@@ -375,10 +375,10 @@ export async function adminRoutes(app, { tunnel, gateway }) {
   });
 
   app.get('/api/admin/usage', { preHandler: requireAdmin }, async (request) => {
-    gateway.cleanupBlockedRequests();
+    gateway.cleanupUsageLogs();
     const page = Math.max(1, number(request.query.page, 1));
     const limit = 30;
-    const conditions = [];
+    const conditions = ['l.visible = 1'];
     const params = [];
     if (request.query.key_id) { conditions.push('l.key_id = ?'); params.push(Number(request.query.key_id)); }
     if (request.query.provider_id) { conditions.push('l.provider_id = ?'); params.push(Number(request.query.provider_id)); }
@@ -441,11 +441,11 @@ export async function adminRoutes(app, { tunnel, gateway }) {
   });
 
   app.get('/api/admin/blocked', { preHandler: requireAdmin }, async () => {
-    gateway.cleanupBlockedRequests();
+    gateway.cleanupUsageLogs();
     return {
       logs: db.prepare(`SELECT b.*, k.name key_name, p.name provider_name FROM usage_logs b
         LEFT JOIN api_keys k ON k.id = b.key_id LEFT JOIN providers p ON p.id = b.provider_id
-        WHERE b.category = 'client_mismatch' AND b.created_at >= datetime('now', '-5 hours') ORDER BY b.id DESC LIMIT 200`).all()
+        WHERE b.visible = 1 AND b.category = 'client_mismatch' ORDER BY b.id DESC LIMIT 200`).all()
         .map((log) => ({ ...log, headers: JSON.parse(log.headers_json) })),
     };
   });
