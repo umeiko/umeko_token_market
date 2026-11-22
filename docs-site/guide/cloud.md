@@ -48,7 +48,7 @@
 
 五小时或周限额耗尽时返回 HTTP 429 和 `rate_limit_error`，错误中包含 ISO 8601 格式的 `reset_at`、倒计时秒数 `retry_after_seconds`、窗口标识 `quota_window` 和中文恢复时间，同时返回 `Retry-After` 响应头。恢复时间按滚动窗口内的实际 Token 记录计算，即最早能让窗口用量降回限额以下的时刻。
 
-每个 Key 的“接入信息”入口集中显示 Base URL、Model ID、Key 和可复制的环境变量；替换 Key 后旧 Key 立即失效。
+每个 Key 的“接入信息”入口集中显示 Base URL、Model ID、Key 和可复制的环境变量。卡片上的“生成新 Key”按钮可在确认后快速轮换凭据：旧 Key 立即失效，新 Key 和接入环境变量自动复制，原额度、用量、模型权限和客户端规则保持不变。
 
 “可用模型”支持白名单：不勾选表示全部模型，勾选后仅允许指定模型。白名单同时作用于 `/v1/models` 和实际调用，接入信息弹窗也只列出该 Key 可选择的 Model ID。
 
