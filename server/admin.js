@@ -373,6 +373,13 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     return { key: credentials.token, prefix: credentials.prefix };
   });
 
+  app.delete('/api/admin/keys/:id', { preHandler: requireAdmin }, async (request) => {
+    const current = db.prepare('SELECT id FROM api_keys WHERE id = ?').get(request.params.id);
+    if (!current) throw badRequest('Key 不存在');
+    db.prepare('DELETE FROM api_keys WHERE id = ?').run(current.id);
+    return { ok: true };
+  });
+
   app.get('/api/admin/keys/:id/reveal', { preHandler: requireAdmin }, async (request) => {
     const current = db.prepare('SELECT key_ciphertext, key_iv, key_tag FROM api_keys WHERE id = ?').get(request.params.id);
     if (!current) throw badRequest('Key 不存在');

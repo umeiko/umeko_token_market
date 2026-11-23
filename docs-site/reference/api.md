@@ -308,6 +308,10 @@ Anthropic 兼容格式使用外层 `type: "error"`，`error` 中同样包含上�
 
 替换指定 Key 的凭据，保留名称、额度和限流配置。旧 Key 立即失效，新完整 Key 仅返回一次，用于管理员复制 Base URL、Model ID 和接入环境变量。
 
+### DELETE /api/admin/keys/:id
+
+永久删除指定 Key，删除后凭据立即失效且不可恢复。历史请求日志和统计数据保留，日志中的 `key_id` 会置空，界面显示为“已删除 Key”。
+
 ### GET /api/admin/blocked（兼容接口）
 
 管理界面已统一使用 `/api/admin/usage`，不再有独立的拦截记录页面。此兼容接口从最近 300 条可见日志中返回最多 200 条 `category=client_mismatch` 的记录，字段结构与统一日志一致。新集成请使用 `/api/admin/usage?category=client_mismatch`。
