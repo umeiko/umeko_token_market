@@ -126,6 +126,27 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_blocked_created ON blocked_requests(created_at);
+  CREATE TABLE IF NOT EXISTS video_jobs (
+    id TEXT PRIMARY KEY,
+    key_id INTEGER REFERENCES api_keys(id) ON DELETE SET NULL,
+    provider_id INTEGER REFERENCES providers(id) ON DELETE SET NULL,
+    model TEXT NOT NULL,
+    provider_type TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    idempotency_key TEXT,
+    request_hash TEXT NOT NULL,
+    upstream_id TEXT,
+    status TEXT NOT NULL,
+    price_micros INTEGER NOT NULL,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    next_poll INTEGER NOT NULL,
+    UNIQUE(key_id, idempotency_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_video_jobs_key ON video_jobs(key_id, status);
+  CREATE INDEX IF NOT EXISTS idx_video_jobs_poll ON video_jobs(status, next_poll);
+  CREATE INDEX IF NOT EXISTS idx_video_jobs_provider ON video_jobs(provider_id, status);
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -150,6 +171,7 @@ addColumn('usage_logs', 'visible', 'INTEGER NOT NULL DEFAULT 1');
 db.prepare("UPDATE usage_logs SET category = CASE WHEN status BETWEEN 200 AND 399 THEN 'success' ELSE 'error' END WHERE category = 'error'").run();
 addColumn('api_keys', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
 addColumn('api_keys', 'allowed_models', "TEXT NOT NULL DEFAULT '[]'");
+addColumn('api_keys', 'model_aliases', "TEXT NOT NULL DEFAULT '{}'");
 addColumn('api_keys', 'key_ciphertext', "TEXT NOT NULL DEFAULT ''");
 addColumn('api_keys', 'key_iv', "TEXT NOT NULL DEFAULT ''");
 addColumn('api_keys', 'key_tag', "TEXT NOT NULL DEFAULT ''");
@@ -162,6 +184,7 @@ addColumn('api_keys', 'allow_user_apply', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('api_keys', 'quota_reset_5h_at', 'TEXT');
 addColumn('api_keys', 'quota_reset_week_at', 'TEXT');
 addColumn('providers', 'provider_type', "TEXT NOT NULL DEFAULT 'tunnel'");
+addColumn('providers', 'parent_provider_id', 'INTEGER REFERENCES providers(id) ON DELETE SET NULL');
 addColumn('providers', 'base_url', "TEXT NOT NULL DEFAULT ''");
 addColumn('providers', 'api_key_ciphertext', "TEXT NOT NULL DEFAULT ''");
 addColumn('providers', 'api_key_iv', "TEXT NOT NULL DEFAULT ''");
@@ -185,6 +208,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS admin_authorized_keys (
   last_used_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`);
+
+export const ACTIVE_VIDEO_STATES = "('submitting','submission_unknown','queued','running')";
 
 export function getKeyWindowUsage(keyId, window, resetAt = null) {
   return db.prepare(`SELECT COALESCE(SUM(total_tokens), 0) used FROM usage_logs

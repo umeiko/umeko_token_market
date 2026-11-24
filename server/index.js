@@ -8,8 +8,10 @@ import { adminRoutes } from './admin.js';
 import { sendAnthropicError } from './anthropic.js';
 import { db, ensureAdmin, getSettings } from './db.js';
 import { Gateway, sendGatewayError } from './gateway.js';
+import { pairingRoutes } from './pairing.js';
 import { Tunnel } from './tunnel.js';
 import { userRoutes } from './user.js';
+import { videoRoutes } from './video.js';
 
 const basePath = `/${(process.env.BASE_PATH || '').replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, '');
 const assetPath = `/${(process.env.ASSET_PATH || basePath).replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, '');
@@ -30,10 +32,12 @@ const gateway = new Gateway(tunnel, getSettings);
 await app.register(async (relay) => {
   relay.get('/', async () => ({
     name: 'Umeko Token Relay', status: 'ok',
-    endpoints: { openai: `${basePath}/v1`, anthropic: `${basePath}/v1/messages`, health: `${basePath}/health` },
+    endpoints: { openai: `${basePath}/v1`, anthropic: `${basePath}/v1/messages`, videos: `${basePath}/v1/videos`,
+      h3_help: `${basePath}/v1/videos/help.json`, health: `${basePath}/health` },
   }));
   relay.get('/health', async () => ({ status: 'ok', providers_online: tunnel.providers.size }));
   relay.get('/agent/connect', { websocket: true }, (socket) => tunnel.connect(socket));
+  await relay.register(pairingRoutes, { tunnel });
   relay.get('/v1/models', async (request, reply) => {
     try {
       const key = gateway.authenticate(request.headers.authorization);
@@ -52,6 +56,7 @@ await app.register(async (relay) => {
       catch (error) { return sendGatewayError(reply, error); }
     },
   });
+  await relay.register(videoRoutes, { gateway });
   await relay.register(adminRoutes, { tunnel, gateway });
   await relay.register(userRoutes, { tunnel });
   relay.setErrorHandler((error, request, reply) => {

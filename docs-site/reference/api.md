@@ -90,6 +90,10 @@ Content-Type: application/json
 
 普通响应转换为 Anthropic `message` JSON，流式响应依次产生 `message_start`、`content_block_start`、`content_block_delta`、`content_block_stop`、`message_delta` 和 `message_stop`。错误使用 `{ "type": "error", "error": { "type": "...", "message": "..." } }`。
 
+## 视频生成
+
+使用 `POST /v1/videos` 创建任务，使用 `GET /v1/videos/:id` 查询。同一 API Key 必须明确授权视频模型并配置费用额度。查看[参数、供应商配置及结算方式](./video.md)。
+
 ## 限额与上游错误
 
 API Key 或账户的五小时、周 Token 限额耗尽时，请求在鉴权阶段返回 HTTP 429，不会转发到上游。即使请求使用 `stream: true`，也返回普通 JSON 错误。

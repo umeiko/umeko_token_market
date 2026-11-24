@@ -4,6 +4,8 @@
 
 #include <QElapsedTimer>
 #include <QHash>
+#include <QJsonArray>
+#include <functional>
 #include <QNetworkAccessManager>
 #include <QPointer>
 #include <QSettings>
@@ -28,7 +30,7 @@ class AgentController : public QObject {
     Q_PROPERTY(QStringList logs READ logs NOTIFY logsChanged)
 
 public:
-    explicit AgentController(QObject *parent = nullptr);
+    explicit AgentController(const QString &profile = {}, QObject *parent = nullptr);
 
     QString cloudUrl() const { return m_cloudUrl; }
     int providerId() const { return m_providerId; }
@@ -37,6 +39,13 @@ public:
     QString localApiKey() const { return m_localApiKey; }
     bool autoConnect() const { return m_autoConnect; }
     QString connectionState() const { return m_connectionState; }
+    QString serviceType() const { return m_serviceType; }
+    QString healthPath() const { return m_healthPath; }
+    QString modelId() const { return m_modelId; }
+    QString healthMessage() const { return m_healthMessage; }
+    QJsonArray cloudModels() const { return m_cloudModels; }
+    QJsonArray localModels() const { return m_localModels; }
+    QString connectionError() const { return m_connectionError; }
     QString providerName() const { return m_providerName; }
     bool localOnline() const { return m_localOnline; }
     int localLatency() const { return m_localLatency; }
@@ -50,6 +59,17 @@ public:
     void setLocalBaseUrl(const QString &value);
     void setLocalApiKey(const QString &value);
     void setAutoConnect(bool value);
+    void setServiceType(const QString &value) { m_serviceType = value; }
+    void setHealthPath(const QString &value) { m_healthPath = value; }
+    void setModelId(const QString &value) { m_modelId = value; }
+    void removeConfiguration();
+    static bool validBaseUrl(const QString &value);
+    static bool validHealthPath(const QString &value);
+    void probe(const QString &base, const QString &path, const QString &key,
+               const std::function<void(const QJsonObject &)> &complete);
+
+    void redeemPairing(const QString &base, const QJsonObject &pairing,
+                       const std::function<void(const QJsonObject &)> &complete);
 
     Q_INVOKABLE void start();
     Q_INVOKABLE void stop();
@@ -76,6 +96,8 @@ private:
     struct RequestState {
         QPointer<QNetworkReply> reply;
         bool headersSent = false;
+        bool flowControl = false;
+        bool waitingForCredit = false;
     };
 
     QUrl endpoint() const;
@@ -89,19 +111,28 @@ private:
     void streamReply(const QString &id);
     void finishReply(const QString &id);
     void abortRequests();
+    void cancelHealth();
 
     WebSocketTransport m_transport;
     QNetworkAccessManager m_network;
     QSettings m_settings;
     QTimer m_reconnectTimer;
     QTimer m_healthTimer;
-    QPointer<QNetworkReply> m_healthReply;
+    bool m_checking = false;
+    quint64 m_healthGeneration = 0;
     QHash<QString, RequestState> m_requests;
     QString m_cloudUrl;
     int m_providerId = 1;
     QString m_providerToken;
     QString m_localBaseUrl;
     QString m_localApiKey;
+    QString m_serviceType;
+    QString m_healthPath;
+    QString m_modelId;
+    QString m_healthMessage;
+    QString m_connectionError;
+    QJsonArray m_cloudModels;
+    QJsonArray m_localModels;
     bool m_autoConnect = false;
     QString m_connectionState = QStringLiteral("offline");
     QString m_providerName;

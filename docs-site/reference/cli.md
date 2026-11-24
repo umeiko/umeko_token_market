@@ -86,3 +86,6 @@ utoken serve [连接参数] [--auto-start] [--web-port 8787]
 | `1` | 启动、恢复或命令参数失败 |
 | `2` | 前台服务无法绑定管理端口 |
 | `3` | 管理服务未运行或不可访问 |
+
+
+本地视频连接器可用 `--service-type video` 选择异步视频模式，用 `--health-path /health` 设置探测路径。并行运行多个连接器时，用 `--profile` 区分本机配置，用 `--web-port` 区分管理端口。详见[本机 Web 控制台](../guide/local.md#本机-web-控制台)。

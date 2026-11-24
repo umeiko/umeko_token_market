@@ -14,9 +14,11 @@ RemoteAgentController::RemoteAgentController(quint16 port, QObject *parent) : QO
 }
 
 QJsonObject RemoteAgentController::config() const {
-    return {{QStringLiteral("cloudUrl"), m_cloudUrl}, {QStringLiteral("providerId"), m_providerId},
-            {QStringLiteral("providerToken"), m_providerToken}, {QStringLiteral("localBaseUrl"), m_localBaseUrl},
-            {QStringLiteral("localApiKey"), m_localApiKey}, {QStringLiteral("autoConnect"), m_autoConnect}};
+    QJsonObject result{{QStringLiteral("cloudUrl"), m_cloudUrl}, {QStringLiteral("providerId"), m_providerId},
+                       {QStringLiteral("localBaseUrl"), m_localBaseUrl}, {QStringLiteral("autoConnect"), m_autoConnect}};
+    if (!m_providerToken.isEmpty()) result.insert(QStringLiteral("providerToken"), m_providerToken);
+    if (!m_localApiKey.isEmpty()) result.insert(QStringLiteral("localApiKey"), m_localApiKey);
+    return result;
 }
 
 void RemoteAgentController::call(const QString &method, const QString &path, const QJsonObject &body, const std::function<void(const QJsonObject &, bool)> &callback) {

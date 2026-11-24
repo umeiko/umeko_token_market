@@ -21,6 +21,9 @@ const tabs = [
   { id: 'settings', label: '系统设置', icon: 'settings', description: '服务参数与管理员安全', component: Settings },
 ];
 const initial = location.hash.slice(1);
+const toolPaths = new Set(['/uresource/', '/utoken/', '/utoken/qwen-q8/', '/utoken/qwen-w8a8-fp8/', '/utoken/h3/']);
+const requestedTool = new URLSearchParams(location.search).get('next');
+const toolTarget = toolPaths.has(requestedTool) ? requestedTool : '';
 const current = ref(tabs.some((tab) => tab.id === initial) ? initial : 'dashboard');
 const active = computed(() => tabs.find((tab) => tab.id === current.value));
 const ready = ref(false), user = ref(null), username = ref(''), password = ref(''), error = ref(''), busy = ref(false), nav = ref(false);
@@ -42,6 +45,7 @@ async function processIdentityFile(file) {
     const challenge = await api('POST', '/api/admin/ed25519/challenge', {});
     const signature = await crypto.subtle.sign({ name: 'Ed25519' }, privateKey, new TextEncoder().encode(challenge.challenge));
     const result = await api('POST', '/api/admin/ed25519/login', { id: challenge.id, challenge: challenge.challenge, signature: base64(signature) });
+    if (toolTarget) { location.replace(toolTarget); return; }
     user.value = result.user;
     await loadSettings();
   } catch (e) {
@@ -84,6 +88,10 @@ async function loadSettings() {
   try { siteName.value = (await api('GET', '/api/admin/settings')).settings.site_name || 'Umeko Token Relay'; } catch { /* Login page does not need settings. */ }
 }
 onMounted(async () => {
+  if (toolTarget) {
+    try { await api('GET', '/api/admin/tools-session'); location.replace(toolTarget); return; }
+    catch { ready.value = true; return; }
+  }
   try { user.value = (await api('GET', '/api/admin/me')).user; await loadSettings(); } catch { /* Show sign-in. */ }
   ready.value = true;
   window.addEventListener('session-expired', expire);
@@ -119,14 +127,14 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
   <main v-else-if="!user" class="login-page">
     <section class="login-card">
       <div class="login-brand"><span class="brand-mark"><UiIcon name="activity" :size="24" /></span><span>UMEKO <b>TOKEN</b></span></div>
-      <div class="login-heading"><span class="eyebrow">ADMIN CONSOLE</span><h1>欢迎回来</h1><p>登录以管理你的模型中转服务</p></div>
-      <form class="stack" @submit.prevent="login">
+      <div class="login-heading"><span class="eyebrow">ADMIN CONSOLE</span><h1>{{ toolTarget ? '验证管理员身份' : '欢迎回来' }}</h1><p>{{ toolTarget ? '使用 admin.umeko-key 进入本机工具' : '登录以管理你的模型中转服务' }}</p></div>
+      <form v-if="!toolTarget" class="stack" @submit.prevent="login">
         <div class="field"><label for="username">管理员账号</label><input id="username" v-model="username" autocomplete="username" placeholder="请输入账号" required autofocus /></div>
         <div class="field"><label for="password">密码</label><input id="password" v-model="password" type="password" autocomplete="current-password" placeholder="请输入密码" required /></div>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button class="primary login-button" :disabled="busy">{{ busy ? '正在登录…' : '登录控制台' }}<UiIcon v-if="!busy" name="arrow" :size="17" /></button>
       </form>
-      <div class="login-divider"><span>或使用身份 Key</span></div>
+      <div v-if="!toolTarget" class="login-divider"><span>或使用身份 Key</span></div>
       <div class="identity-dropzone" :class="{ dragging: identityDragging, busy }" role="button" tabindex="0" @click="!busy && identityInput.click()" @keydown.enter.prevent="!busy && identityInput.click()" @keydown.space.prevent="!busy && identityInput.click()" @dragover.prevent="identityDragging = true" @dragleave.prevent="identityDragging = false" @drop.prevent="dropIdentity">
         <input ref="identityInput" class="visually-hidden" type="file" aria-label="选择 Umeko 身份 Key 文件" :disabled="busy" @change="identityLogin" />
         <UiIcon name="key" :size="23" />
@@ -134,8 +142,9 @@ function refresh() { window.dispatchEvent(new Event('relay-refresh')); }
         <span>或点击从本机选择文件</span>
         <small>Ed25519 签名仅在浏览器本地完成，私钥不会上传</small>
       </div>
+      <p v-if="toolTarget && error" class="form-error" role="alert">{{ error }}</p>
       <p v-if="identityFileName && !busy" class="help-text identity-file">{{ identityFileName }}</p>
-      <details class="ssh-alternative"><summary>使用 OpenSSH 签名登录</summary><div class="stack">
+      <details v-if="!toolTarget" class="ssh-alternative"><summary>使用 OpenSSH 签名登录</summary><div class="stack">
         <template v-if="!sshChallenge"><div class="field"><label for="ssh-public-key">已授权的 OpenSSH 公钥</label><textarea id="ssh-public-key" v-model="sshPublicKey" rows="3" placeholder="ssh-ed25519 AAAA..." required></textarea><span class="help-text">先在系统设置中添加 Token Seller 管理员公钥。</span></div><p v-if="error" class="form-error">{{ error }}</p><button class="primary login-button" :disabled="busy || !sshPublicKey.trim()" @click="createSshChallenge">获取签名挑战</button></template>
         <template v-else><div class="field"><label>在保存私钥的电脑执行</label><div class="command-box"><pre><code>{{ sshCommand }}</code></pre></div><span class="help-text">会生成 /tmp/umeko-admin-challenge.sig。挑战 5 分钟内有效。</span></div><div class="field"><label>上传签名文件</label><input type="file" accept=".sig" @change="readSignature" /></div><p v-if="error" class="form-error">{{ error }}</p><button class="primary login-button" :disabled="busy || !sshSignature" @click="sshLogin">验证签名并登录</button><button class="text-button self-start" @click="sshChallenge = null; sshSignature = ''">重新获取挑战</button></template>
       </div></details>

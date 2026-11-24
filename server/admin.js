@@ -1,9 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { changePassword, db, getKeyWindowUsage, getSettings, getUserUsage, setSetting, verifyAdmin } from './db.js';
-import { consumeRateLimit, createAgentToken, createApiKey, publicProvider, sessionExpired, touchSession, verifySameOrigin } from './security.js';
+import { consumeRateLimit, createAgentToken, createApiKey, isTunnelProvider, publicProvider, sessionExpired, touchSession, verifySameOrigin } from './security.js';
 import { decryptProviderKey, encryptProviderKey } from './providerCrypto.js';
 import { parsePublicKey, verifySshSignature } from './sshAuth.js';
+import { isVideoProvider, videoBaseUrl } from './videoProvider.js';
 import { createEd25519Challenge, verifyEd25519Signature } from './ed25519Auth.js';
+
+import { clearProviderPairing, issueProviderPairing } from './pairing.js';
+import { allowedModels, modelAliases } from './modelPolicy.js';
 
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -13,12 +17,19 @@ const SESSION_AGE = 7 * 24 * 60 * 60 * 1000;
 const badRequest = (message) => Object.assign(new Error(message), { statusCode: 400 });
 const number = (value, fallback = 0) => value === '' || value === undefined ? fallback : Number(value);
 const bool = (value) => value ? 1 : 0;
-const allowedModels = (value) => {
-  try {
-    const models = Array.isArray(value) ? value : JSON.parse(value || '[]');
-    return Array.isArray(models) ? models.filter((model) => typeof model === 'string').slice(0, 100) : [];
-  } catch { return []; }
-};
+function modelPolicy(body, current = {}) {
+  const allowed = allowedModels(body.allowed_models === undefined ? current.allowed_models : body.allowed_models);
+  const submitted = body.model_aliases;
+  const aliases = modelAliases(submitted ?? current.model_aliases);
+  if (submitted !== undefined && (!submitted || typeof submitted !== 'object' || Array.isArray(submitted)
+    || Object.values(submitted).some((value) => typeof value !== 'string' || /[\u0000-\u001f\u007f]/.test(value) || value.trim().length > 200))) {
+    throw badRequest('模型别名必须为 1 至 200 个字符，留空可使用原 ID');
+  }
+  const publicIds = allowed.map((name) => aliases.get(name)?.trim() || name);
+  if (new Set(publicIds).size !== publicIds.length) throw badRequest('同一 Key 下的对外 Model ID 不能重复');
+  const saved = allowed.flatMap((name, index) => publicIds[index] === name ? [] : [[name, publicIds[index]]]);
+  return [JSON.stringify(allowed), JSON.stringify(Object.fromEntries(saved))];
+}
 const clientErrorMessage = (value, fallback = '请使用umeko-desktop来提问吧') => {
   const message = String(value ?? fallback).trim();
   if (!message) throw badRequest('请填写客户端不匹配时返回的提示文字');
@@ -30,6 +41,7 @@ function keyView(row, gateway) {
   return {
     ...row,
     allowed_models: allowedModels(row.allowed_models),
+    model_aliases: Object.fromEntries(modelAliases(row.model_aliases)),
     key_hash: undefined,
     key_ciphertext: undefined,
     key_iv: undefined,
@@ -110,7 +122,7 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     const user = db.prepare('SELECT id, username FROM admin_users WHERE id = ?').get(Number(process.env.ADMIN_ED25519_USER_ID || 1));
     if (!user) return reply.code(401).send({ error: '管理员账户不存在' });
     const token = randomBytes(32).toString('base64url');
-    sessions.set(token, { ...user, expires: Date.now() + SESSION_AGE, lastSeen: Date.now() });
+    sessions.set(token, { ...user, identityFile: true, expires: Date.now() + SESSION_AGE, lastSeen: Date.now() });
     reply.setCookie('umeko_session', token, {
       path: '/', httpOnly: true, sameSite: 'strict', secure: process.env.COOKIE_SECURE === 'true', maxAge: SESSION_AGE / 1000,
     });
@@ -176,13 +188,19 @@ export async function adminRoutes(app, { tunnel, gateway }) {
 
   app.get('/api/admin/me', { preHandler: requireAdmin }, async (request) => ({ user: { id: request.admin.id, username: request.admin.username } }));
 
+  app.get('/api/admin/tools-session', { preHandler: requireAdmin }, async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.admin.identityFile) return reply.code(401).send({ error: '请使用管理员身份 Key 登录' });
+    return reply.code(204).send();
+  });
+
   app.get('/api/admin/overview', { preHandler: requireAdmin }, async () => {
     const today = db.prepare(`SELECT COUNT(*) requests, COALESCE(SUM(total_tokens), 0) tokens,
       COALESCE(SUM(cost_micros), 0) cost_micros,
       COALESCE(SUM(CASE WHEN status BETWEEN 200 AND 399 THEN 1 ELSE 0 END), 0) successful
       FROM usage_logs WHERE date(created_at) = date('now')`).get();
     const totals = db.prepare(`SELECT (SELECT COUNT(*) FROM api_keys WHERE enabled = 1) active_keys,
-      (SELECT COUNT(*) FROM providers WHERE enabled = 1) providers,
+      (SELECT COUNT(DISTINCT COALESCE(parent_provider_id, id)) FROM providers WHERE enabled = 1) providers,
       (SELECT COALESCE(SUM(total_tokens), 0) FROM usage_logs) tokens,
       (SELECT COALESCE(SUM(cost_micros), 0) FROM usage_logs) cost_micros`).get();
     const rows = db.prepare(`SELECT date(created_at) day, COUNT(*) requests, SUM(total_tokens) tokens,
@@ -194,8 +212,9 @@ export async function adminRoutes(app, { tunnel, gateway }) {
       const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
       series.push(byDay.get(day) || { day, requests: 0, tokens: 0, cost_micros: 0 });
     }
-    const recent = db.prepare(`SELECT l.*, k.name key_name, p.name provider_name FROM usage_logs l
+    const recent = db.prepare(`SELECT l.*, k.name key_name, COALESCE(parent.name, p.name) provider_name FROM usage_logs l
       LEFT JOIN api_keys k ON k.id = l.key_id LEFT JOIN providers p ON p.id = l.provider_id
+      LEFT JOIN providers parent ON parent.id = p.parent_provider_id
       WHERE l.visible = 1 ORDER BY l.id DESC LIMIT 8`).all();
     return { today: { ...today, cost: today.cost_micros / 1e6 }, totals: { ...totals, cost: totals.cost_micros / 1e6, online: tunnel.providers.size }, series, recent };
   });
@@ -208,10 +227,27 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     if (body.client_error_field && !/^[a-zA-Z_][a-zA-Z0-9_]{0,40}$/.test(body.client_error_field)) throw badRequest('自定义错误字段仅支持字母、数字和下划线');
   }
 
+  function providerParent(id, type, currentId) {
+    if (id == null) return null;
+    if (!Number.isSafeInteger(id) || id === currentId || !isTunnelProvider(type)) {
+      throw badRequest('请选择有效的本地供应商');
+    }
+    const parent = db.prepare('SELECT provider_type, parent_provider_id FROM providers WHERE id = ?').get(id);
+    if (!parent || parent.parent_provider_id !== null || !isTunnelProvider(parent.provider_type)) {
+      throw badRequest('请选择顶层本地供应商');
+    }
+    if (currentId && db.prepare('SELECT 1 FROM providers WHERE parent_provider_id = ? LIMIT 1').get(currentId)) {
+      throw badRequest('此供应商还有下属连接，请先调整这些连接的归属');
+    }
+    return id;
+  }
+
   app.get('/api/admin/providers', { preHandler: requireAdmin }, async () => {
     const providers = db.prepare('SELECT * FROM providers ORDER BY id DESC').all().map((row) => ({
-      ...publicProvider(row, row.provider_type !== 'tunnel' ? Boolean(row.base_url) : tunnel.isOnline(row.id)),
-      active: gateway.providerActive(row.id),
+      ...publicProvider(row, isTunnelProvider(row.provider_type) ? tunnel.connected(row.id) : Boolean(row.base_url)),
+      parent_provider_id: row.parent_provider_id,
+      discovery: isTunnelProvider(row.provider_type) ? tunnel.discovery(row.id) : null,
+      active: isVideoProvider(row.provider_type) ? gateway.videoProviderActive(row.id) : gateway.providerActive(row.id),
       models: db.prepare('SELECT * FROM models WHERE provider_id = ? ORDER BY id').all(row.id).map((model) => ({ ...model, enabled: Boolean(model.enabled) })),
     }));
     return { providers };
@@ -224,63 +260,87 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     return { key: decryptProviderKey(current), legacy: false };
   });
 
-  app.post('/api/admin/providers', { preHandler: requireAdmin }, async (request) => {
+  app.post('/api/admin/providers', { preHandler: requireAdmin }, async (request, reply) => {
     const body = request.body || {};
     const { name, description = '', max_concurrency = 4, models = [], provider_type = 'tunnel' } = body;
     if (!name?.trim()) throw badRequest('请填写供应商名称');
-    if (!['tunnel', 'openai', 'anthropic'].includes(provider_type)) throw badRequest('供应商类型无效');
-    if (!models.length || models.some((model) => !model.name?.trim())) throw badRequest('请至少添加一个模型名称');
+    if (!isVideoProvider(provider_type) && !['tunnel', 'openai', 'anthropic'].includes(provider_type)) throw badRequest('供应商类型无效');
+    const parentId = providerParent(body.parent_provider_id, provider_type);
+    if (!Array.isArray(models) || (!isTunnelProvider(provider_type) && !models.length) || models.some((model) => !model?.name?.trim())) {
+      throw badRequest('请检查模型名称，云端供应商至少需要一个模型');
+    }
     validateClientConfig(body);
-    if (provider_type !== 'tunnel') {
+    if (!isTunnelProvider(provider_type)) {
       if (!body.base_url || !/^https?:\/\//.test(body.base_url)) throw badRequest('云端供应商需要有效的 Base URL');
       if (!body.api_key) throw badRequest('云端供应商需要 API Key');
     }
+    const baseUrl = isTunnelProvider(provider_type) ? ''
+      : isVideoProvider(provider_type) ? videoBaseUrl(provider_type, body.base_url) : body.base_url || '';
     const credentials = createAgentToken();
-    const encrypted = provider_type === 'tunnel' ? encryptProviderKey('') : encryptProviderKey(body.api_key);
+    const encrypted = isTunnelProvider(provider_type) ? encryptProviderKey('') : encryptProviderKey(body.api_key);
     const result = db.prepare(`INSERT INTO providers
-      (name, description, token_hash, token_prefix, max_concurrency, provider_type, base_url,
+      (name, description, token_hash, token_prefix, max_concurrency, provider_type, base_url, parent_provider_id,
        api_key_ciphertext, api_key_iv, api_key_tag, api_key_prefix,
        client_mode, client_pattern, client_error_field, client_error_message, client_error_code)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(name.trim(), description, credentials.hash, credentials.prefix, Math.max(0, number(max_concurrency, 4)),
-        provider_type, body.base_url || '', encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag, encrypted.api_key_prefix,
+        provider_type, baseUrl, parentId, encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag, encrypted.api_key_prefix,
         body.client_mode || 'regex', body.client_pattern || '', body.client_error_field || 'message', body.client_error_message || '', body.client_error_code || '');
     const providerId = Number(result.lastInsertRowid);
     const insert = db.prepare('INSERT INTO models(provider_id, name, upstream_name, context_length, input_price, output_price) VALUES (?, ?, ?, ?, ?, ?)');
     for (const model of models) insert.run(providerId, model.name.trim(), model.upstream_name?.trim() || model.name.trim(), Math.max(0, Math.floor(number(model.context_length))), Math.max(0, number(model.input_price)), Math.max(0, number(model.output_price)));
-    return { id: providerId, token: provider_type === 'tunnel' ? credentials.token : null };
+    const paired = isTunnelProvider(provider_type);
+    if (paired) reply.header('Cache-Control', 'no-store');
+    return { id: providerId, token: paired ? credentials.token : null,
+      pairing: paired ? issueProviderPairing(providerId) : null };
   });
 
   app.patch('/api/admin/providers/:id', { preHandler: requireAdmin }, async (request) => {
     const body = request.body || {};
     const current = db.prepare('SELECT * FROM providers WHERE id = ?').get(request.params.id);
     if (!current) return { ok: false };
+    const parentId = body.parent_provider_id === undefined ? current.parent_provider_id
+      : providerParent(body.parent_provider_id, current.provider_type, current.id);
     validateClientConfig({ ...current, ...body });
+    const baseUrl = isVideoProvider(current.provider_type) && !isTunnelProvider(current.provider_type)
+      ? videoBaseUrl(current.provider_type, body.base_url ?? current.base_url)
+      : body.base_url ?? current.base_url;
     const encrypted = body.api_key ? encryptProviderKey(body.api_key) : {
       api_key_ciphertext: current.api_key_ciphertext, api_key_iv: current.api_key_iv,
       api_key_tag: current.api_key_tag, api_key_prefix: current.api_key_prefix,
     };
-    db.prepare(`UPDATE providers SET name = ?, description = ?, max_concurrency = ?, enabled = ?, base_url = ?,
+    db.prepare(`UPDATE providers SET name = ?, description = ?, max_concurrency = ?, enabled = ?, base_url = ?, parent_provider_id = ?,
       api_key_ciphertext = ?, api_key_iv = ?, api_key_tag = ?, api_key_prefix = ?,
       client_mode = ?, client_pattern = ?, client_error_field = ?, client_error_message = ?, client_error_code = ? WHERE id = ?`).run(
       body.name?.trim() || current.name, body.description ?? current.description,
       Math.max(0, number(body.max_concurrency, current.max_concurrency)),
-      body.enabled === undefined ? current.enabled : bool(body.enabled), body.base_url ?? current.base_url,
+      body.enabled === undefined ? current.enabled : bool(body.enabled), baseUrl, parentId,
       encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag, encrypted.api_key_prefix,
       body.client_mode ?? current.client_mode, body.client_pattern ?? current.client_pattern,
       body.client_error_field ?? current.client_error_field, body.client_error_message ?? current.client_error_message,
       body.client_error_code ?? current.client_error_code, current.id,
     );
-    if (body.enabled === false && tunnel.providers.get(current.id)) tunnel.providers.get(current.id).socket.close(1008, 'Provider disabled');
+    if (body.enabled === false) {
+      clearProviderPairing(current.id);
+      tunnel.providers.get(current.id)?.socket.close(1008, 'Provider disabled');
+    }
     return { ok: true };
+  });
+
+  app.post('/api/admin/providers/:id/pairing', { preHandler: requireAdmin }, async (request, reply) => {
+    const provider = db.prepare('SELECT id, provider_type, enabled FROM providers WHERE id = ?').get(request.params.id);
+    if (!provider?.enabled || !isTunnelProvider(provider.provider_type)) throw badRequest('请选择已启用的本地供应商');
+    reply.header('Cache-Control', 'no-store');
+    return issueProviderPairing(provider.id);
   });
 
   app.post('/api/admin/providers/:id/rotate', { preHandler: requireAdmin }, async (request) => {
     const current = db.prepare('SELECT id, provider_type FROM providers WHERE id = ?').get(request.params.id);
     if (!current) throw badRequest('供应商不存在');
-    if (current.provider_type !== 'tunnel') throw badRequest('云端供应商请直接更新 API Key');
+    if (!isTunnelProvider(current.provider_type)) throw badRequest('云端供应商请直接更新 API Key');
     const credentials = createAgentToken();
     db.prepare('UPDATE providers SET token_hash = ?, token_prefix = ? WHERE id = ?').run(credentials.hash, credentials.prefix, current.id);
+    clearProviderPairing(current.id);
     tunnel.providers.get(current.id)?.socket.close(1008, 'Credentials rotated');
     return { token: credentials.token };
   });
@@ -321,15 +381,16 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     const body = request.body || {};
     if (!body.name?.trim()) throw badRequest('请填写 Key 名称');
     validateClientConfig(body);
+    const [allowed, aliases] = modelPolicy(body);
     const credentials = createApiKey();
     const encrypted = encryptProviderKey(credentials.token);
     const result = db.prepare(`INSERT INTO api_keys
-      (name, key_hash, key_prefix, key_ciphertext, key_iv, key_tag, allowed_models, client_mode, client_pattern, client_error_message,
+      (name, key_hash, key_prefix, key_ciphertext, key_iv, key_tag, allowed_models, model_aliases, client_mode, client_pattern, client_error_message,
        token_quota, budget_quota_micros, quota_5h, quota_week,
        allow_user_apply, rpm_limit, concurrency_limit, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(body.name.trim(), credentials.hash, credentials.prefix, encrypted.api_key_ciphertext, encrypted.api_key_iv, encrypted.api_key_tag,
-        JSON.stringify(allowedModels(body.allowed_models)), body.client_mode || 'regex', body.client_pattern || '', clientErrorMessage(body.client_error_message), Math.max(0, number(body.token_quota)),
+        allowed, aliases, body.client_mode || 'regex', body.client_pattern || '', clientErrorMessage(body.client_error_message), Math.max(0, number(body.token_quota)),
         Math.round(Math.max(0, number(body.budget_quota)) * 1e6),
         Math.max(0, Math.floor(number(body.quota_5h))), Math.max(0, Math.floor(number(body.quota_week))),
         bool(body.allow_user_apply), Math.max(0, number(body.rpm_limit, 60)),
@@ -342,6 +403,7 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     if (!current) throw badRequest('Key 不存在');
     const body = request.body || {};
     validateClientConfig({ ...current, ...body });
+    const [allowed, aliases] = modelPolicy(body, current);
     if (body.reset_window !== undefined) {
       if (!['5h', 'week'].includes(body.reset_window)) throw badRequest('无效的重置范围');
       const field = body.reset_window === '5h' ? 'quota_reset_5h_at' : 'quota_reset_week_at';
@@ -350,9 +412,9 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     if (body.reset_usage) {
       db.prepare("UPDATE api_keys SET used_tokens = 0, used_cost_micros = 0, quota_reset_5h_at = datetime('now'), quota_reset_week_at = datetime('now') WHERE id = ?").run(current.id);
     }
-    db.prepare(`UPDATE api_keys SET name = ?, allowed_models = ?, client_mode = ?, client_pattern = ?, client_error_message = ?, token_quota = ?, budget_quota_micros = ?, quota_5h = ?, quota_week = ?,
+    db.prepare(`UPDATE api_keys SET name = ?, allowed_models = ?, model_aliases = ?, client_mode = ?, client_pattern = ?, client_error_message = ?, token_quota = ?, budget_quota_micros = ?, quota_5h = ?, quota_week = ?,
       allow_user_apply = ?, rpm_limit = ?, concurrency_limit = ?, enabled = ?, expires_at = ? WHERE id = ?`).run(
-      body.name?.trim() || current.name, JSON.stringify(allowedModels(body.allowed_models === undefined ? current.allowed_models : body.allowed_models)),
+      body.name?.trim() || current.name, allowed, aliases,
       body.client_mode ?? current.client_mode, body.client_pattern ?? current.client_pattern, clientErrorMessage(body.client_error_message, current.client_error_message), Math.max(0, number(body.token_quota, current.token_quota)),
       Math.round(Math.max(0, number(body.budget_quota, current.budget_quota_micros / 1e6)) * 1e6),
       Math.max(0, Math.floor(number(body.quota_5h, current.quota_5h))), Math.max(0, Math.floor(number(body.quota_week, current.quota_week))),
@@ -394,14 +456,19 @@ export async function adminRoutes(app, { tunnel, gateway }) {
     const conditions = ['l.visible = 1'];
     const params = [];
     if (request.query.key_id) { conditions.push('l.key_id = ?'); params.push(Number(request.query.key_id)); }
-    if (request.query.provider_id) { conditions.push('l.provider_id = ?'); params.push(Number(request.query.provider_id)); }
+    if (request.query.provider_id) {
+      const id = Number(request.query.provider_id);
+      conditions.push('(l.provider_id = ? OR l.provider_id IN (SELECT id FROM providers WHERE parent_provider_id = ?))');
+      params.push(id, id);
+    }
     if (request.query.status === 'success') conditions.push('l.status BETWEEN 200 AND 399');
     if (request.query.status === 'error') conditions.push('l.status NOT BETWEEN 200 AND 399');
     if (request.query.category) { conditions.push('l.category = ?'); params.push(String(request.query.category)); }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const total = db.prepare(`SELECT COUNT(*) count FROM usage_logs l ${where}`).get(...params).count;
-    const logs = db.prepare(`SELECT l.*, k.name key_name, k.key_prefix, p.name provider_name FROM usage_logs l
+    const logs = db.prepare(`SELECT l.*, k.name key_name, k.key_prefix, COALESCE(parent.name, p.name) provider_name FROM usage_logs l
       LEFT JOIN api_keys k ON k.id = l.key_id LEFT JOIN providers p ON p.id = l.provider_id
+      LEFT JOIN providers parent ON parent.id = p.parent_provider_id
       ${where} ORDER BY l.id DESC LIMIT ? OFFSET ?`).all(...params, limit, (page - 1) * limit)
       .map((log) => ({ ...log, headers: JSON.parse(log.headers_json || '{}') }));
     return { logs, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
@@ -456,8 +523,9 @@ export async function adminRoutes(app, { tunnel, gateway }) {
   app.get('/api/admin/blocked', { preHandler: requireAdmin }, async () => {
     gateway.cleanupUsageLogs();
     return {
-      logs: db.prepare(`SELECT b.*, k.name key_name, p.name provider_name FROM usage_logs b
+      logs: db.prepare(`SELECT b.*, k.name key_name, COALESCE(parent.name, p.name) provider_name FROM usage_logs b
         LEFT JOIN api_keys k ON k.id = b.key_id LEFT JOIN providers p ON p.id = b.provider_id
+        LEFT JOIN providers parent ON parent.id = p.parent_provider_id
         WHERE b.visible = 1 AND b.category = 'client_mismatch' ORDER BY b.id DESC LIMIT 200`).all()
         .map((log) => ({ ...log, headers: JSON.parse(log.headers_json) })),
     };

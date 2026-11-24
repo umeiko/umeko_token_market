@@ -11,6 +11,7 @@
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -24,11 +25,14 @@ struct Options {
     QCommandLineOption token{QStringList() << QStringLiteral("provider-token"), QStringLiteral("Provider token"), QStringLiteral("token")};
     QCommandLineOption local{QStringList() << QStringLiteral("local-base-url"), QStringLiteral("Local inference base URL"), QStringLiteral("url")};
     QCommandLineOption localKey{QStringList() << QStringLiteral("local-api-key"), QStringLiteral("Local inference API key"), QStringLiteral("key")};
+    QCommandLineOption serviceType{QStringList() << QStringLiteral("service-type"), QStringLiteral("Local service type: api or video"), QStringLiteral("type")};
+    QCommandLineOption healthPath{QStringList() << QStringLiteral("health-path"), QStringLiteral("Local GET health check path"), QStringLiteral("path")};
+    QCommandLineOption profile{QStringList() << QStringLiteral("profile"), QStringLiteral("Named connector settings"), QStringLiteral("name")};
     QCommandLineOption automatic{QStringList() << QStringLiteral("auto-start"), QStringLiteral("Connect immediately")};
 };
 
 void addConnectionOptions(QCommandLineParser &parser, Options &options) {
-    parser.addOptions({options.cloud, options.provider, options.token, options.local, options.localKey, options.automatic});
+    parser.addOptions({options.cloud, options.provider, options.token, options.local, options.localKey, options.profile, options.serviceType, options.healthPath, options.automatic});
 }
 
 void configureAgent(const QCommandLineParser &parser, const Options &options, AgentController &agent) {
@@ -37,6 +41,10 @@ void configureAgent(const QCommandLineParser &parser, const Options &options, Ag
     if (parser.isSet(options.token)) agent.setProviderToken(parser.value(options.token));
     if (parser.isSet(options.local)) agent.setLocalBaseUrl(parser.value(options.local));
     if (parser.isSet(options.localKey)) agent.setLocalApiKey(parser.value(options.localKey));
+    if (parser.isSet(options.serviceType)) agent.setServiceType(parser.value(options.serviceType));
+    if (parser.isSet(options.healthPath)) agent.setHealthPath(parser.value(options.healthPath));
+    else if (parser.isSet(options.serviceType)) agent.setHealthPath(
+        parser.value(options.serviceType) == QStringLiteral("video") ? QStringLiteral("/health") : QStringLiteral("/v1/models"));
     if (parser.isSet(options.automatic) || (agent.autoConnect() && !agent.providerToken().isEmpty())) {
         QTimer::singleShot(0, &agent, &AgentController::start);
     }
@@ -62,12 +70,18 @@ int runService(int argc, char *argv[]) {
     parser.addOptions({webPort, noWeb});
     parser.process(app);
 
-    AgentController agent;
+    const QString profile = parser.value(options.profile);
+    const QRegularExpression validProfile(QStringLiteral("^[a-zA-Z0-9_-]{1,40}$"));
+    if (parser.isSet(options.profile) && !validProfile.match(profile).hasMatch()) {
+        qCritical().noquote() << "Invalid profile name. Use 1–40 letters, digits, underscores or hyphens.";
+        return 2;
+    }
+    AgentController agent(profile);
     configureAgent(parser, options, agent);
     QObject::connect(&agent, &AgentController::logsChanged, &app, [&agent] {
         if (!agent.logs().isEmpty()) qInfo().noquote() << agent.logs().constLast();
     });
-    LocalWebServer web(&agent);
+    LocalWebServer web(&agent, profile);
     QObject::connect(&web, &LocalWebServer::shutdownRequested, &app, [&app] { QTimer::singleShot(200, &app, &QCoreApplication::quit); });
     if (!parser.isSet(noWeb)) {
         bool ok = false;
@@ -89,7 +103,8 @@ bool launchService(char *argv0, const QCommandLineParser &parser, const Options 
     const QList<QPair<QCommandLineOption, QString>> forwarded = {
         {options.cloud, parser.value(options.cloud)}, {options.provider, parser.value(options.provider)},
         {options.token, parser.value(options.token)}, {options.local, parser.value(options.local)},
-        {options.localKey, parser.value(options.localKey)},
+        {options.localKey, parser.value(options.localKey)}, {options.profile, parser.value(options.profile)},
+        {options.serviceType, parser.value(options.serviceType)}, {options.healthPath, parser.value(options.healthPath)},
     };
     for (const auto &entry : forwarded) {
         if (!entry.second.isEmpty()) arguments << QStringLiteral("--") + entry.first.names().constFirst() << entry.second;
@@ -128,6 +143,12 @@ int runCommand(int argc, char *argv[]) {
             if (parser.isSet(options.token)) config.insert(QStringLiteral("providerToken"), parser.value(options.token));
             if (parser.isSet(options.local)) config.insert(QStringLiteral("localBaseUrl"), parser.value(options.local));
             if (parser.isSet(options.localKey)) config.insert(QStringLiteral("localApiKey"), parser.value(options.localKey));
+            if (parser.isSet(options.serviceType)) {
+                const QString serviceType = parser.value(options.serviceType);
+                config.insert(QStringLiteral("serviceType"), serviceType);
+                config.insert(QStringLiteral("healthPath"), serviceType == QStringLiteral("video") ? QStringLiteral("/health") : QStringLiteral("/v1/models"));
+            }
+            if (parser.isSet(options.healthPath)) config.insert(QStringLiteral("healthPath"), parser.value(options.healthPath));
             bool ok = false;
             ServiceControl::request(QStringLiteral("POST"), QStringLiteral("/api/start"), port, config, &ok);
             if (!ok) { err << "Failed to resume provider forwarding.\n"; return 1; }

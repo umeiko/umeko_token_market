@@ -34,7 +34,7 @@ Connection: Upgrade
 
 ## 健康上报
 
-本地每 15 秒请求一次 `LOCAL_BASE_URL/v1/models`，并上报：
+本地每 15 秒请求配置的健康检查路径（普通 API 默认为 `/v1/models`），并上报：
 
 ```json
 {
@@ -127,6 +127,12 @@ Connection: Upgrade
 - 云端 HTTP JSON body 限制为 20 MiB；
 - 请求超时默认 300 秒，可在云端设置中调整；
 - 协议不是可靠消息队列，断线时正在执行的请求失败，不自动重放。
+
+## 本地视频隧道
+
+新版 utoken 在认证消息声明 `videoBridge: true`。云端返回供应商类型和模型别名，健康上报后可收到更新后的模型映射。`video_tunnel` 类型仅接受具备视频能力的连接器。
+
+创建与查询使用既有的 JSON 转发消息。成品下载使用固定本地路径 `/v1/videos/:localId/content`。云端为该请求开启 `flowControl`，收到一块数据并确认输出流可继续写入后返回 `credit`。连接器收到该确认后再读取下一块。断开或超过传输上限会取消该请求。
 
 ## 版本演进建议
 

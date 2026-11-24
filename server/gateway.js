@@ -1,9 +1,13 @@
+import { StringDecoder } from 'node:string_decoder';
+import { Readable } from 'node:stream';
 import { anthropicResponseStream, anthropicToOpenAI } from './anthropic.js';
-import { db, getKeyWindowUsage, getQuotaResetAt, getUserUsage, transaction } from './db.js';
+import { ACTIVE_VIDEO_STATES, db, getKeyWindowUsage, getQuotaResetAt, getUserUsage, transaction } from './db.js';
 import { forwardDirectProvider } from './directProvider.js';
-import { bearerToken, hashToken } from './security.js';
+import { bearerToken, hashToken, isTunnelProvider } from './security.js';
 import { upstreamErrorStream, withAdminContact } from './errors.js';
 import { IpRegionResolver } from './ipRegion.js';
+import { isVideoProvider } from './videoProvider.js';
+import { keyModels } from './modelPolicy.js';
 
 const estimateTokens = (text) => Math.max(1, Math.ceil(String(text).length / 4));
 const asOpenAIError = (message, type = 'api_error') => ({ error: { message, type } });
@@ -23,12 +27,28 @@ const quotaError = (message, resetAt, quotaWindow) => {
     statusCode: 429, resetAt: reset, retryAfterSeconds, quotaWindow,
   });
 };
-const allowedModels = (key) => {
+function replaceResponseModel(json, model) {
   try {
-    const models = JSON.parse(key.allowed_models || '[]');
-    return Array.isArray(models) ? models : [];
-  } catch { return []; }
-};
+    const body = JSON.parse(json);
+    if (typeof body?.model === 'string') return JSON.stringify({ ...body, model });
+  } catch { /* Preserve non-JSON payloads and SSE markers. */ }
+  return json;
+}
+
+async function* aliasResponse(stream, model, isStream) {
+  const decoder = new StringDecoder('utf8');
+  const event = (line) => line.startsWith('data:') ? 'data: ' + replaceResponseModel(line.slice(5).trim(), model) : line;
+  let buffered = '';
+  for await (const chunk of stream) {
+    buffered += decoder.write(chunk);
+    if (!isStream) continue;
+    const lines = buffered.split('\n');
+    buffered = lines.pop();
+    if (lines.length) yield lines.map(event).join('\n') + '\n';
+  }
+  buffered += decoder.end();
+  if (buffered) yield isStream ? event(buffered) : replaceResponseModel(buffered, model);
+}
 
 export class Gateway {
   constructor(tunnel, settings) {
@@ -43,7 +63,7 @@ export class Gateway {
     this.usageCleanup.unref();
   }
 
-  authenticate(header) {
+  authenticate(header, { checkQuotas = true } = {}) {
     const token = bearerToken(header);
     if (!token) throw Object.assign(new Error('请在 Authorization: Bearer 中提供 API Key'), { statusCode: 401 });
     const key = db.prepare('SELECT * FROM api_keys WHERE key_hash = ?').get(hashToken(token));
@@ -51,29 +71,33 @@ export class Gateway {
     if (key.expires_at && new Date(`${key.expires_at.replace(' ', 'T')}Z`) <= new Date()) {
       throw Object.assign(new Error('API Key 已过期'), { statusCode: 401 });
     }
-    if (key.token_quota > 0 && key.used_tokens >= key.token_quota) {
+    if (checkQuotas && key.token_quota > 0 && key.used_tokens >= key.token_quota) {
       throw Object.assign(new Error('API Key 的 Token 额度已用尽'), { statusCode: 429 });
     }
-    if (key.budget_quota_micros > 0 && key.used_cost_micros >= key.budget_quota_micros) {
-      throw Object.assign(new Error('API Key 的费用额度已用尽'), { statusCode: 429 });
+    if (checkQuotas && key.budget_quota_micros > 0) {
+      const { held } = db.prepare(`SELECT COALESCE(SUM(price_micros), 0) held FROM video_jobs
+        WHERE key_id = ? AND status IN ${ACTIVE_VIDEO_STATES}`).get(key.id);
+      if (key.used_cost_micros + held >= key.budget_quota_micros) {
+        throw Object.assign(new Error('API Key 的可用费用额度已用尽'), { statusCode: 429 });
+      }
     }
-    if (key.quota_5h > 0 && getKeyWindowUsage(key.id, '-5 hours', key.quota_reset_5h_at) >= key.quota_5h) {
+    if (checkQuotas && key.quota_5h > 0 && getKeyWindowUsage(key.id, '-5 hours', key.quota_reset_5h_at) >= key.quota_5h) {
       const resetAt = getQuotaResetAt({ keyId: key.id, window: '-5 hours', quota: key.quota_5h, resetAt: key.quota_reset_5h_at });
       throw quotaError('API Key 的五小时 Token 限额已用尽', resetAt, '5h');
     }
-    if (key.quota_week > 0 && getKeyWindowUsage(key.id, '-7 days', key.quota_reset_week_at) >= key.quota_week) {
+    if (checkQuotas && key.quota_week > 0 && getKeyWindowUsage(key.id, '-7 days', key.quota_reset_week_at) >= key.quota_week) {
       const resetAt = getQuotaResetAt({ keyId: key.id, window: '-7 days', quota: key.quota_week, resetAt: key.quota_reset_week_at });
       throw quotaError('API Key 的每周 Token 限额已用尽', resetAt, 'week');
     }
     if (key.user_id) {
       const user = db.prepare('SELECT enabled FROM users WHERE id = ?').get(key.user_id);
       if (!user?.enabled) throw Object.assign(new Error('用户账户已被停用'), { statusCode: 401 });
-      const usage = getUserUsage(key.user_id);
-      if (usage.five_hours.quota > 0 && usage.five_hours.used >= usage.five_hours.quota) {
+      const usage = checkQuotas ? getUserUsage(key.user_id) : null;
+      if (checkQuotas && usage.five_hours.quota > 0 && usage.five_hours.used >= usage.five_hours.quota) {
         const resetAt = getQuotaResetAt({ userId: key.user_id, window: '-5 hours', quota: usage.five_hours.quota, resetAt: user.quota_reset_5h_at });
         throw quotaError('账户五小时 Token 限额已用尽', resetAt, '5h');
       }
-      if (usage.week.quota > 0 && usage.week.used >= usage.week.quota) {
+      if (checkQuotas && usage.week.quota > 0 && usage.week.used >= usage.week.quota) {
         const resetAt = getQuotaResetAt({ userId: key.user_id, window: '-7 days', quota: usage.week.quota, resetAt: user.quota_reset_week_at });
         throw quotaError('账户每周 Token 限额已用尽', resetAt, 'week');
       }
@@ -92,8 +116,12 @@ export class Gateway {
     return (this.providerActivity.get(Number(providerId)) || 0) + this.tunnel.activeCount(providerId);
   }
 
+  videoProviderActive(providerId) {
+    return db.prepare(`SELECT COUNT(*) count FROM video_jobs WHERE provider_id = ? AND status IN ${ACTIVE_VIDEO_STATES}`).get(providerId).count;
+  }
+
   providerOnline(row) {
-    return row.provider_type && row.provider_type !== 'tunnel'
+    return !isTunnelProvider(row.provider_type)
       ? Boolean(row.base_url)
       : this.tunnel.isOnline(row.provider_id);
   }
@@ -109,29 +137,34 @@ export class Gateway {
   }
 
   models(key) {
-    const allowed = allowedModels(key);
-    return db.prepare(`SELECT m.id, m.name, m.context_length, m.provider_id, p.provider_type, p.base_url FROM models m
+    const policy = keyModels(key);
+    return db.prepare(`SELECT m.id, m.name, m.context_length, m.provider_id, m.output_price, p.provider_type, p.base_url FROM models m
       JOIN providers p ON p.id = m.provider_id
       WHERE m.enabled = 1 AND p.enabled = 1 ORDER BY m.name`).all()
-      .filter((model) => this.providerOnline(model) && (!allowed.length || allowed.includes(model.name)))
-      .map((model) => ({ id: model.name, object: 'model', created: 0, owned_by: 'umeko-relay', context_length: model.context_length || null }));
+      .filter((model) => this.providerOnline(model) && (isVideoProvider(model.provider_type)
+        ? policy.allowed.has(model.name) && key.budget_quota_micros > 0 && model.output_price > 0
+        : !policy.restricted || policy.allowed.has(model.name)))
+      .map((model) => ({ id: policy.publicIds.get(model.name) || model.name, object: 'model', created: 0,
+        owned_by: 'umeko-relay', context_length: model.context_length || null, ...(isVideoProvider(model.provider_type) ? { modality: 'video' } : {}) }));
   }
 
-  selectProvider(modelName, key) {
-    const allowed = allowedModels(key);
-    if (allowed.length && !allowed.includes(modelName)) {
+  selectProvider(modelName, key, { video = false } = {}) {
+    const policy = keyModels(key);
+    const routeName = video || policy.restricted ? policy.routes.get(modelName) : modelName;
+    if (!routeName) {
       throw Object.assign(new Error(`此 API Key 无权使用模型 ${modelName}`), { statusCode: 403 });
     }
+    const activeCount = (id) => video ? this.videoProviderActive(id) : this.providerActive(id);
     const candidates = db.prepare(`SELECT m.*, p.name AS provider_name, p.max_concurrency,
       p.provider_type, p.base_url, p.api_key_ciphertext, p.api_key_iv, p.api_key_tag,
       p.client_mode, p.client_pattern, p.client_error_field, p.client_error_message, p.client_error_code,
       p.description, p.token_prefix, p.last_seen_at, p.last_latency_ms, p.created_at AS provider_created_at
       FROM models m JOIN providers p ON p.id = m.provider_id
-      WHERE m.name = ? AND m.enabled = 1 AND p.enabled = 1`).all(modelName)
-      .filter((row) => this.providerOnline(row))
-      .sort((a, b) => this.providerActive(a.provider_id) - this.providerActive(b.provider_id));
+      WHERE m.name = ? AND m.enabled = 1 AND p.enabled = 1`).all(routeName)
+      .filter((row) => isVideoProvider(row.provider_type) === video && this.providerOnline(row))
+      .sort((a, b) => activeCount(a.provider_id) - activeCount(b.provider_id));
     if (!candidates.length) throw Object.assign(new Error(`模型 ${modelName} 不存在或所在供应商离线`), { statusCode: 503 });
-    const available = candidates.find((row) => row.max_concurrency === 0 || this.providerActive(row.provider_id) < row.max_concurrency);
+    const available = candidates.find((row) => row.max_concurrency === 0 || activeCount(row.provider_id) < row.max_concurrency);
     if (!available) throw Object.assign(new Error('供应商并发已满，请稍后重试'), { statusCode: 429 });
     return available;
   }
@@ -175,14 +208,14 @@ export class Gateway {
       WHERE visible = 1 AND id NOT IN (SELECT id FROM usage_logs WHERE visible = 1 ORDER BY id DESC LIMIT 300)`).run();
   }
 
-  rejectClient(request, reply, key, model, anthropic, text) {
+  rejectClient(request, reply, key, model, anthropic, text, publicId) {
     this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: 200, latency: 0, error: '客户端 User-Agent 不匹配，已返回客户端提示流', request, category: 'client_mismatch' });
     const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '')}`;
     const created = Math.floor(Date.now() / 1000);
     let payload;
     if (anthropic) {
       const events = [
-        ['message_start', { type: 'message_start', message: { id: `msg_${id}`, type: 'message', role: 'assistant', model: model.name, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } }],
+        ['message_start', { type: 'message_start', message: { id: `msg_${id}`, type: 'message', role: 'assistant', model: publicId, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } }],
         ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],
         ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }],
         ['content_block_stop', { type: 'content_block_stop', index: 0 }],
@@ -192,7 +225,7 @@ export class Gateway {
       payload = events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('');
     } else {
       const chunk = (delta, finishReason) => {
-        const data = { id, object: 'chat.completion.chunk', created, model: model.name, choices: [{ index: 0, delta, finish_reason: finishReason }] };
+        const data = { id, object: 'chat.completion.chunk', created, model: publicId, choices: [{ index: 0, delta, finish_reason: finishReason }] };
         return `data: ${JSON.stringify(data)}\n\n`;
       };
       payload = chunk({ role: 'assistant', content: text }, null) + chunk({}, 'stop') + 'data: [DONE]\n\n';
@@ -233,7 +266,7 @@ export class Gateway {
     try {
       this.validateClient(key, String(request.headers['user-agent'] || ''));
     } catch (error) {
-      if (error.customResponse) return this.rejectClient(request, reply, key, model, anthropic, error.customResponse.message);
+      if (error.customResponse) return this.rejectClient(request, reply, key, model, anthropic, error.customResponse.message, modelName);
       this.record({ requestId: crypto.randomUUID(), key, model, usage: {}, status: error.statusCode || 400, latency: 0, error: error.message, request, category: 'request_error' });
       throw error;
     }
@@ -281,7 +314,10 @@ export class Gateway {
       throw error;
     }
     const isStream = String(forwarded.headers['content-type'] || '').includes('text/event-stream');
-    const completion = this.observe(forwarded.stream, body, isStream, forwarded.status)
+    const contentType = String(forwarded.headers['content-type'] || '');
+    const rewrite = !anthropic && modelName !== model.name && forwarded.status < 400 && (isStream || contentType.includes('application/json'));
+    const responseStream = rewrite ? Readable.from(aliasResponse(forwarded.stream, modelName, isStream)) : forwarded.stream;
+    const completion = this.observe(responseStream, body, isStream, forwarded.status)
       .then(({ usage, error }) => {
         const category = forwarded.status >= 200 && forwarded.status < 400 ? 'success' : [401, 403].includes(forwarded.status) ? 'upstream_auth' : 'upstream_error';
         const fallback = category === 'upstream_auth' ? '上游拒绝了供应商 API Key，请检查上游凭据' : `上游返回 HTTP ${forwarded.status}`;
@@ -296,8 +332,8 @@ export class Gateway {
     }
     reply.header('x-request-id', forwarded.requestId);
     const output = anthropic
-      ? anthropicResponseStream(forwarded.stream, { isStream, status: forwarded.status, model: model.name, requestId: forwarded.requestId })
-      : forwarded.stream;
+      ? anthropicResponseStream(forwarded.stream, { isStream, status: forwarded.status, model: modelName, requestId: forwarded.requestId })
+      : responseStream;
     return reply.send(output);
   }
 

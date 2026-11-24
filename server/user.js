@@ -1,3 +1,4 @@
+import { isVideoProvider } from './videoProvider.js';
 import { randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { db, getUserUsage, transaction } from './db.js';
 import { consumeRateLimit, createApiKey, sessionExpired, touchSession, verifySameOrigin } from './security.js';
@@ -182,6 +183,7 @@ export async function userRoutes(app, { tunnel }) {
     const models = db.prepare(`SELECT m.name, m.input_price, m.output_price, p.name provider_name, p.id provider_id,
       p.provider_type, p.base_url FROM models m JOIN providers p ON p.id = m.provider_id
       WHERE m.enabled = 1 AND p.enabled = 1 ORDER BY m.name`).all()
+      .filter((model) => !isVideoProvider(model.provider_type))
       .filter((model) => model.provider_type !== 'tunnel' ? Boolean(model.base_url) : tunnel.isOnline(model.provider_id))
       .map(({ provider_id, provider_type, base_url, ...model }) => model);
     const plans = db.prepare('SELECT id, name, quota_5h, quota_week FROM api_keys WHERE user_id IS NULL AND enabled = 1 AND allow_user_apply = 1 ORDER BY id DESC').all();

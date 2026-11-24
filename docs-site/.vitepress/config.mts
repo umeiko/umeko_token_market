@@ -21,6 +21,7 @@ function sidebar(): DefaultTheme.SidebarItem[] {
     { text: '技术参考', items: [
       { text: '架构设计', link: '/reference/architecture' },
       { text: 'API 接口参考', link: '/reference/api' },
+      { text: '视频生成 API', link: '/reference/video' },
       { text: '反向隧道协议', link: '/reference/tunnel' },
       { text: 'utoken 命令参考', link: '/reference/cli' },
       { text: '开发与构建', link: '/reference/development' }

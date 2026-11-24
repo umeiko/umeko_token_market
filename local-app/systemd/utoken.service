@@ -1,0 +1,12 @@
+[Unit]
+Description=Umeko local API connector
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/utoken serve --auto-start --web-port 8787
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target

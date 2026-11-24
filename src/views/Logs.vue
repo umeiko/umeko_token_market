@@ -36,7 +36,7 @@ onMounted(async () => {
   await load();
   const [k, p] = await Promise.all([api('GET', '/api/admin/keys'), api('GET', '/api/admin/providers')]);
   keys.value = k.keys;
-  providers.value = p.providers;
+  providers.value = p.providers.filter((provider) => provider.parent_provider_id == null);
   window.addEventListener('relay-refresh', load);
 });
 onBeforeUnmount(() => window.removeEventListener('relay-refresh', load));

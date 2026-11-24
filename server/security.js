@@ -73,3 +73,5 @@ export function publicProvider(row, online = false) {
     created_at: row.created_at,
   };
 }
+
+export const isTunnelProvider = (type) => !type || type === 'tunnel' || type === 'video_tunnel';

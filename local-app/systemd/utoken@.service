@@ -1,0 +1,13 @@
+[Unit]
+Description=Umeko local connector (%i)
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/utoken/%i.env
+ExecStart=%h/.local/bin/utoken serve --profile %i --auto-start --web-port ${UTOKEN_WEB_PORT}
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target
